@@ -28,6 +28,7 @@ export default function LobbyPage() {
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [showCreateGame, setShowCreateGame] = useState(false);
   const [newGameName, setNewGameName] = useState("");
+  const [maxPlayers, setMaxPlayers] = useState(5);
   const [createError, setCreateError] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 1, time: "15:31", user: "system", text: `${user?.username} joined the lobby`, isSystem: true },
@@ -108,7 +109,11 @@ export default function LobbyPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ name: gameName }),
+        body: JSON.stringify({
+          name: gameName,
+          host_name: user?.username || "Host",
+          max_players: maxPlayers,
+        }),
       });
 
       if (!response.ok) {
@@ -116,14 +121,18 @@ export default function LobbyPage() {
         throw new Error(error.detail || "Failed to create game");
       }
 
-      const newGame = await response.json();
+      // The response is AuthResponse: { game_id, player_id, player_token }
+      // We don't need to store it, just refresh the games list
+      await response.json();
+      
       setNewGameName("");
+      setMaxPlayers(5);
       setShowCreateGame(false);
       setCreateError("");
       
-      // Add to games list immediately
-      setGames((prev) => [newGame, ...prev]);
-      addSystemMessage(`✨ ${user?.username} created game: ${gameName}`);
+      // Refresh games list to show the new game
+      await fetchGames();
+      addSystemMessage(`✨ ${user?.username} created game: ${gameName} (${maxPlayers} players max)`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Failed to create game";
       setCreateError(errorMsg);
@@ -312,14 +321,33 @@ export default function LobbyPage() {
                   <p className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-700">❌ {createError}</p>
                 )}
                 <form onSubmit={handleCreateGame} className="flex flex-col gap-3">
-                  <input
-                    type="text"
-                    value={newGameName}
-                    onChange={(e) => setNewGameName(e.target.value)}
-                    placeholder="Enter game name..."
-                    disabled={isCreatingGame}
-                    className="px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#4bbda6] disabled:bg-slate-100 disabled:cursor-not-allowed"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Game Name</label>
+                    <input
+                      type="text"
+                      value={newGameName}
+                      onChange={(e) => setNewGameName(e.target.value)}
+                      placeholder="Enter game name..."
+                      disabled={isCreatingGame}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#4bbda6] disabled:bg-slate-100 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Max Players</label>
+                    <select
+                      value={maxPlayers}
+                      onChange={(e) => setMaxPlayers(parseInt(e.target.value))}
+                      disabled={isCreatingGame}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#4bbda6] disabled:bg-slate-100 disabled:cursor-not-allowed"
+                    >
+                      <option value={2}>2 Players</option>
+                      <option value={3}>3 Players</option>
+                      <option value={4}>4 Players</option>
+                      <option value={5}>5 Players</option>
+                    </select>
+                  </div>
+
                   <div className="flex gap-3">
                     <Button 
                       variant="primary" 
@@ -336,6 +364,7 @@ export default function LobbyPage() {
                         setShowCreateGame(false);
                         setCreateError("");
                         setNewGameName("");
+                        setMaxPlayers(5);
                       }}
                       className="px-6"
                       disabled={isCreatingGame}
