@@ -1,4 +1,3 @@
-import React from 'react';
 import FeatureCard from '../../components/FeatureCard';
 import Button from '../../components/Button';
 import { useNavigate } from 'react-router';

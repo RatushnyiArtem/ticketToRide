@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import europeMap from "./europe-map.jpg";
 
 type PlayerColor = "red" | "blue" | "green" | "yellow" | "black";

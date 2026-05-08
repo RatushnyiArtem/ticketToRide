@@ -1,19 +1,31 @@
-// src/pages/Signup.tsx
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router'; 
+import { Link, useNavigate } from 'react-router';
 import Button from '../../components/Button';
+import { clearAuthToken, register, saveAuthToken } from '../../lib/authApi';
 
 export default function Signup() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Signing up:", username, email);
-    // Fake a successful registration and redirect to login
-    navigate('/login');
+    setError('');
+    setIsLoading(true);
+
+    try {
+      clearAuthToken();
+      const response = await register({ username, email, password });
+      saveAuthToken(response.token);
+      navigate('/game');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create account');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -25,6 +37,8 @@ export default function Signup() {
       <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md border border-gray-100">
         <h2 className="text-2xl font-bold text-gray-800 mb-2 text-center">Create an Account</h2>
         <p className="text-gray-500 text-sm text-center mb-8">Join the railway network today.</p>
+
+        {error ? <p className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
 
         <form onSubmit={handleSignup} className="flex flex-col gap-4">
           <div>
@@ -63,8 +77,8 @@ export default function Signup() {
             />
           </div>
 
-          <Button variant="primary" type="submit" className="w-full py-2.5 mt-4">
-            Sign Up
+          <Button variant="primary" type="submit" className="w-full py-2.5 mt-4" disabled={isLoading}>
+            {isLoading ? 'Signing Up...' : 'Sign Up'}
           </Button>
         </form>
 
