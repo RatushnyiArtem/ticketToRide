@@ -24,6 +24,8 @@ def create_game(db: Session, name: str, host_name: str, max_players: int) -> Pla
     db.refresh(host)
     return host
 
+def get_games(db):
+    return db.query(Game).all()
 
 def join_game(db: Session, game_id: str, player_name: str) -> Player:
     game = db.get(Game, game_id)

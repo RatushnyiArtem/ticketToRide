@@ -8,6 +8,9 @@ class CreateGameRequest(BaseModel):
     host_name: str = Field(min_length=2, max_length=60)
     max_players: int = Field(default=5, ge=2, le=5)
 
+class Lobby:
+    id: str
+    players: list
 
 class JoinGameRequest(BaseModel):
     player_name: str = Field(min_length=2, max_length=60)
