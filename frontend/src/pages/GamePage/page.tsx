@@ -278,55 +278,54 @@ const PLAYER_COLORS: Record<PlayerColor, string> = {
 };
 
 const CITIES: City[] = [
-  { id: "edinburgh", name: "Edinburgh", x: 12, y: 8, labelDx: 1.2, labelDy: -1.3 },
-  { id: "london", name: "London", x: 18, y: 24, labelDx: 1.2, labelDy: -1.2 },
-  { id: "amsterdam", name: "Amsterdam", x: 29, y: 25, labelDx: 1.1, labelDy: -1.25 },
-  { id: "bruxelles", name: "Bruxelles", x: 24, y: 30, labelDx: 1.15, labelDy: -0.55 },
-  { id: "dieppe", name: "Dieppe", x: 20, y: 34, labelDx: 1.1, labelDy: -0.7 },
-  { id: "brest", name: "Brest", x: 13, y: 36, labelDx: -0.4, labelDy: -0.9, labelAnchor: "end" },
-  { id: "paris", name: "Paris", x: 20, y: 39, labelDx: 1.25, labelDy: -0.8 },
-  { id: "pamplona", name: "Pamplona", x: 17, y: 56, labelDx: 1.1, labelDy: -0.8 },
-  { id: "madrid", name: "Madrid", x: 8, y: 60, labelDx: 1.1, labelDy: -0.9 },
-  { id: "lisboa", name: "Lisboa", x: 5, y: 62.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "cadiz", name: "Cadiz", x: 8, y: 67, labelDx: 1.1, labelDy: -0.8 },
-  { id: "barcelona", name: "Barcelona", x: 22, y: 62, labelDx: 1.1, labelDy: -0.8 },
-  { id: "marseille", name: "Marseille", x: 31, y: 52, labelDx: 1.1, labelDy: -0.8 },
-  { id: "zurich", name: "Zürich", x: 35, y: 44, labelDx: 1.05, labelDy: -0.75 },
-  { id: "frankfurt", name: "Frankfurt", x: 37, y: 34, labelDx: 1.1, labelDy: -0.8 },
-  { id: "essen", name: "Essen", x: 38, y: 25.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "berlin", name: "Berlin", x: 48, y: 24, labelDx: 1.15, labelDy: -0.8 },
-  { id: "copenhagen", name: "København", x: 47, y: 15, labelDx: 1.1, labelDy: -0.8 },
-  { id: "stockholm", name: "Stockholm", x: 56, y: 7, labelDx: 1.05, labelDy: -0.8 },
-  { id: "danzig", name: "Danzig", x: 56, y: 21, labelDx: 1.1, labelDy: -0.8 },
-  { id: "riga", name: "Riga", x: 67, y: 12, labelDx: 1.1, labelDy: -0.8 },
-  { id: "petrograd", name: "Petrograd", x: 84, y: 10, labelDx: 1.1, labelDy: -0.8 },
-  { id: "moscow", name: "Moskva", x: 89, y: 24, labelDx: 1.1, labelDy: -0.8 },
-  { id: "warsaw", name: "Warszawa", x: 63, y: 31, labelDx: 1.1, labelDy: -0.8 },
-  { id: "wilno", name: "Wilno", x: 70, y: 27, labelDx: 1.1, labelDy: -0.8 },
-  { id: "smolensk", name: "Smolensk", x: 78, y: 30, labelDx: 1.1, labelDy: -0.8 },
-  { id: "kyiv", name: "Kyiv", x: 74, y: 37, labelDx: 1.1, labelDy: -0.8 },
-  { id: "kharkov", name: "Kharkov", x: 88, y: 41, labelDx: 1.1, labelDy: -0.8 },
-  { id: "rostov", name: "Rostov", x: 92, y: 51, labelDx: 1.1, labelDy: -0.8 },
-  { id: "sevastopol", name: "Sevastopol", x: 79, y: 53.8, labelDx: 1.1, labelDy: -0.8 },
-  { id: "sochi", name: "Sochi", x: 93, y: 60, labelDx: 1.1, labelDy: -0.8 },
-  { id: "erzurum", name: "Erzurum", x: 90, y: 66, labelDx: 1.1, labelDy: -0.8 },
-  { id: "angora", name: "Angora", x: 80, y: 66, labelDx: 1.1, labelDy: -0.8 },
-  { id: "constantinople", name: "Constantinople", x: 73, y: 61.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "smyrna", name: "Smyrna", x: 69, y: 66.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "athens", name: "Athina", x: 65, y: 62.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "sofia", name: "Sofia", x: 67, y: 56.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "bucharest", name: "București", x: 75, y: 51, labelDx: 1.1, labelDy: -0.8 },
-  { id: "budapest", name: "Budapest", x: 60, y: 46, labelDx: 1.1, labelDy: -0.8 },
-  { id: "vienna", name: "Wien", x: 54, y: 42, labelDx: 1.1, labelDy: -0.8 },
-  { id: "munich", name: "München", x: 45, y: 40, labelDx: 1.1, labelDy: -0.8 },
-  { id: "venezia", name: "Venezia", x: 46, y: 49.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "zagreb", name: "Zagrab", x: 52, y: 52.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "sarajevo", name: "Sarajevo", x: 57, y: 56.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "roma", name: "Roma", x: 42, y: 58.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "brindisi", name: "Brindisi", x: 54, y: 64, labelDx: 1.1, labelDy: -0.8 },
-  { id: "palermo", name: "Palermo", x: 48, y: 67.5, labelDx: 1.1, labelDy: -0.8 },
+  { id: "edinburgh", name: "Edinburgh", x: 9.2, y: 6.2, labelDx: 1.2, labelDy: -1.1 },
+  { id: "london", name: "London", x: 13.8, y: 21.2, labelDx: 1.05, labelDy: -1.0 },
+  { id: "amsterdam", name: "Amsterdam", x: 21.8, y: 20.4, labelDx: 0.9, labelDy: -1.0 },
+  { id: "bruxelles", name: "Bruxelles", x: 19.8, y: 25.4, labelDx: -0.45, labelDy: -1.05, labelAnchor: "end" },
+  { id: "dieppe", name: "Dieppe", x: 13.2, y: 31.9, labelDx: 1.0, labelDy: -0.8 },
+  { id: "brest", name: "Brest", x: 4.9, y: 36.9, labelDx: -0.55, labelDy: -0.8, labelAnchor: "end" },
+  { id: "paris", name: "Paris", x: 16.2, y: 35.2, labelDx: 0.95, labelDy: -0.8 },
+  { id: "pamplona", name: "Pamplona", x: 10.9, y: 49.4, labelDx: -0.55, labelDy: -0.9, labelAnchor: "end" },
+  { id: "madrid", name: "Madrid", x: 7.5, y: 60.3, labelDx: 0.95, labelDy: -0.85 },
+  { id: "lisboa", name: "Lisboa", x: 3.7, y: 63.2, labelDx: 0.95, labelDy: -0.75 },
+  { id: "cadiz", name: "Cadiz", x: 7.9, y: 69.5, labelDx: 0.95, labelDy: -0.75 },
+  { id: "barcelona", name: "Barcelona", x: 18.8, y: 62.5, labelDx: 0.95, labelDy: -0.85 },
+  { id: "marseille", name: "Marseille", x: 28.4, y: 53.2, labelDx: 0.95, labelDy: -0.8 },
+  { id: "zurich", name: "Zürich", x: 31.8, y: 43.4, labelDx: 0.9, labelDy: -0.8 },
+  { id: "frankfurt", name: "Frankfurt", x: 34.2, y: 31.9, labelDx: 0.95, labelDy: -0.85 },
+  { id: "essen", name: "Essen", x: 33.5, y: 21.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "berlin", name: "Berlin", x: 43.4, y: 20.8, labelDx: 0.95, labelDy: -0.85 },
+  { id: "copenhagen", name: "København", x: 49.0, y: 10.3, labelDx: 0.9, labelDy: -0.8 },
+  { id: "stockholm", name: "Stockholm", x: 57.9, y: 5.9, labelDx: 0.9, labelDy: -0.8 },
+  { id: "danzig", name: "Danzig", x: 56.9, y: 20.9, labelDx: 0.9, labelDy: -0.8 },
+  { id: "riga", name: "Riga", x: 69.0, y: 8.8, labelDx: 0.9, labelDy: -0.8 },
+  { id: "petrograd", name: "Petrograd", x: 84.5, y: 6.6, labelDx: 0.9, labelDy: -0.8 },
+  { id: "moscow", name: "Moskva", x: 92.2, y: 20.5, labelDx: -0.6, labelDy: -0.8, labelAnchor: "end" },
+  { id: "warsaw", name: "Warszawa", x: 62.4, y: 28.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "wilno", name: "Wilno", x: 70.2, y: 25.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "smolensk", name: "Smolensk", x: 79.2, y: 25.2, labelDx: 0.95, labelDy: -0.85 },
+  { id: "kyiv", name: "Kyiv", x: 75.2, y: 35.9, labelDx: 0.95, labelDy: -0.85 },
+  { id: "kharkov", name: "Kharkov", x: 88.4, y: 39.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "rostov", name: "Rostov", x: 93.5, y: 49.5, labelDx: -0.55, labelDy: -0.85, labelAnchor: "end" },
+  { id: "sevastopol", name: "Sevastopol", x: 80.8, y: 52.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "sochi", name: "Sochi", x: 94.0, y: 59.4, labelDx: -0.55, labelDy: -0.85, labelAnchor: "end" },
+  { id: "erzurum", name: "Erzurum", x: 91.0, y: 67.0, labelDx: -0.55, labelDy: -0.85, labelAnchor: "end" },
+  { id: "angora", name: "Angora", x: 82.1, y: 67.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "constantinople", name: "Constantinople", x: 74.7, y: 62.1, labelDx: 0.95, labelDy: -0.85 },
+  { id: "smyrna", name: "Smyrna", x: 69.4, y: 68.2, labelDx: 0.95, labelDy: -0.85 },
+  { id: "athens", name: "Athina", x: 64.3, y: 64.3, labelDx: 0.95, labelDy: -0.85 },
+  { id: "sofia", name: "Sofia", x: 67.3, y: 56.1, labelDx: 0.95, labelDy: -0.85 },
+  { id: "bucharest", name: "București", x: 75.4, y: 50.1, labelDx: 0.95, labelDy: -0.85 },
+  { id: "budapest", name: "Budapest", x: 60.0, y: 44.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "vienna", name: "Wien", x: 53.7, y: 40.5, labelDx: 0.95, labelDy: -0.85 },
+  { id: "munich", name: "München", x: 43.6, y: 37.7, labelDx: 0.95, labelDy: -0.85 },
+  { id: "venezia", name: "Venezia", x: 46.7, y: 50.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "zagreb", name: "Zagrab", x: 53.1, y: 51.9, labelDx: 0.95, labelDy: -0.85 },
+  { id: "sarajevo", name: "Sarajevo", x: 57.2, y: 56.1, labelDx: 0.95, labelDy: -0.85 },
+  { id: "roma", name: "Roma", x: 40.2, y: 58.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "brindisi", name: "Brindisi", x: 53.3, y: 64.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "palermo", name: "Palermo", x: 44.7, y: 70.2, labelDx: 0.95, labelDy: -0.85 },
 ];
-
 const ROUTE_DEFS: Omit<Route, "points">[] = [
   { id: "edinburgh-london", from: "edinburgh", to: "london", color: "black", length: 4 },
   { id: "london-amsterdam", from: "london", to: "amsterdam", color: "gray", length: 2, offset: -0.55 },
@@ -758,6 +757,134 @@ function routeGeometry(route: Route, cityById: Map<CityId, City>) {
     dy,
     angle: (Math.atan2(dy, dx) * 180) / Math.PI,
   };
+}
+
+function ScoreMarker({ x, y, value }: { x: number; y: number; value: number }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <circle r="1.28" fill="#082f49" stroke="#e7c873" strokeWidth="0.34" filter="url(#softShadow)" />
+      <circle r="0.98" fill="#0e7490" stroke="#053447" strokeWidth="0.2" />
+      <text
+        x="0"
+        y="0.35"
+        textAnchor="middle"
+        fontSize="1.05"
+        fontWeight="900"
+        fontFamily="Georgia, serif"
+        fill="#fff7d6"
+      >
+        {value}
+      </text>
+    </g>
+  );
+}
+
+function BoardScoreTrack() {
+  const top = Array.from({ length: 31 }, (_, index) => ({ value: index, x: 4.4 + index * 3.05, y: 2.05 }));
+  const right = Array.from({ length: 19 }, (_, index) => ({ value: 31 + index, x: 97.75, y: 5.4 + index * 3.45 }));
+  const bottom = Array.from({ length: 31 }, (_, index) => ({ value: 80 - index, x: 4.4 + index * 3.05, y: 72.95 }));
+  const left = Array.from({ length: 19 }, (_, index) => ({ value: 99 - index, x: 2.25, y: 5.4 + index * 3.45 }));
+
+  return (
+    <g pointerEvents="none">
+      <rect x="0.65" y="0.65" width="98.7" height="73.7" rx="2.6" fill="none" stroke="#6b4e26" strokeWidth="1.3" />
+      <rect x="1.45" y="1.45" width="97.1" height="72.1" rx="2.0" fill="none" stroke="#d9b56d" strokeWidth="0.55" />
+      <path
+        d="M2.7 3.8 C8 1.7 14 1.7 19.5 3.8 M80.5 3.8 C86 1.7 92 1.7 97.3 3.8 M2.7 71.2 C8 73.3 14 73.3 19.5 71.2 M80.5 71.2 C86 73.3 92 73.3 97.3 71.2"
+        fill="none"
+        stroke="#7c5f2d"
+        strokeWidth="0.45"
+        opacity="0.65"
+      />
+      {[...top, ...right, ...bottom, ...left].map((marker) => (
+        <ScoreMarker key={`${marker.value}-${marker.x}-${marker.y}`} {...marker} />
+      ))}
+    </g>
+  );
+}
+
+function DecorativeMapBackground() {
+  return (
+    <g pointerEvents="none">
+      <rect x="0" y="0" width="100" height="75" fill="url(#water)" />
+      <rect x="0" y="0" width="100" height="75" fill="url(#paperNoise)" opacity="0.22" />
+
+      <path
+        d="M4.5 36 C5.5 31 9 28 12.7 27.3 C15.2 25.4 17.2 23.5 20.1 21.5 C24.8 18.1 29.3 17.1 33.9 18.2 C38.5 16.2 45.1 17.5 49.8 20.0 C55.1 18.4 61.2 18.8 66.9 21.4 C72.6 18.4 80.3 18.0 87.1 21.5 C94.0 25.0 97.1 32.9 95.0 41.7 C96.6 47.3 95.1 53.6 90.2 57.9 C85.6 62.0 76.7 62.3 70.8 60.4 C66.0 64.6 58.1 65.0 52.6 61.6 C47.3 64.0 39.9 63.5 34.9 59.8 C29.2 61.4 22.1 60.1 17.8 56.0 C12.0 56.7 6.8 53.6 4.6 48.5 C2.9 44.8 2.5 39.5 4.5 36 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.55"
+      />
+      <path
+        d="M3.1 58.2 C6.8 55.3 12.4 55.1 16.4 58.4 C19.7 61.2 20.8 66.5 17.2 70.4 C12.9 72.8 6.5 71.2 3.7 67.6 C1.4 64.6 1.0 60.5 3.1 58.2 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.55"
+      />
+      <path
+        d="M6.6 4.8 C11.2 4.1 15.0 7.6 14.5 12.4 C13.6 18.1 17.0 22.2 13.0 26.1 C9.2 28.0 4.8 25.0 4.1 20.3 C3.3 14.8 1.2 7.2 6.6 4.8 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.52"
+      />
+      <path
+        d="M1.9 10.8 C4.5 9.6 6.5 11.7 6.2 14.6 C5.8 18.7 7.0 21.8 4.2 24.1 C1.7 23.7 0.8 20.4 1.0 17.1 C1.1 14.5 0.6 12.0 1.9 10.8 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.45"
+      />
+      <path
+        d="M45.0 3.4 C49.3 0.6 55.7 1.0 59.7 4.9 C62.6 7.8 60.0 11.7 55.9 12.1 C52.1 12.5 47.4 10.8 44.9 8.2 C43.5 6.8 43.5 4.7 45.0 3.4 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.48"
+      />
+      <path
+        d="M41.0 55.5 C45.3 56.6 49.2 59.6 50.3 64.5 C48.2 67.2 44.2 66.3 42.0 63.6 C39.9 61.0 38.9 57.3 41.0 55.5 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.45"
+      />
+      <path
+        d="M44.3 69.1 C47.8 67.6 52.3 68.5 54.6 71.4 C51.2 73.0 46.6 72.7 44.3 69.1 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.38"
+      />
+      <path
+        d="M69.3 59.0 C76.1 57.6 84.2 58.5 91.7 61.1 C96.5 62.8 97.7 68.2 94.5 71.7 C88.4 72.3 80.7 69.7 73.2 68.9 C69.5 68.5 66.7 62.3 69.3 59.0 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.5"
+      />
+
+      <path d="M28.5 38 C31 34 35 33 38.2 35.2 C35.0 36.0 32.2 38.3 30.2 41.8 Z" fill="#7c6748" opacity="0.42" />
+      <path d="M50.0 42 C52.5 37.5 56.8 36.2 60.8 38.4 C57.2 39.3 54.6 42.3 52.0 46.1 Z" fill="#7c6748" opacity="0.38" />
+      <path d="M71.0 42 C75.2 39.0 80.3 40.0 83.4 44.1 C78.9 43.6 75.2 45.0 72.8 48.3 Z" fill="#7c6748" opacity="0.33" />
+      <path d="M31.4 37.0 L32.4 34.9 L33.4 37.0 L34.6 34.6 L35.7 37.0 L36.8 34.8 L37.9 37.0" fill="none" stroke="#4b3b2a" strokeWidth="0.35" opacity="0.55" />
+      <path d="M53.3 41.2 L54.4 38.9 L55.6 41.2 L56.8 38.8 L58.0 41.2" fill="none" stroke="#4b3b2a" strokeWidth="0.35" opacity="0.5" />
+
+      <text x="10" y="44" fontSize="3.2" fill="#1e5d75" opacity="0.28" fontFamily="Georgia, serif">⚓</text>
+      <text x="31" y="14" fontSize="3.4" fill="#6b4423" opacity="0.22" fontFamily="Georgia, serif">✈</text>
+      <text x="53" y="70" fontSize="3.2" fill="#1e5d75" opacity="0.26" fontFamily="Georgia, serif">⛵</text>
+      <text x="82" y="46" fontSize="3.3" fill="#1e5d75" opacity="0.26" fontFamily="Georgia, serif">⚓</text>
+      <text x="75" y="17" fontSize="3.0" fill="#6b4423" opacity="0.18" fontFamily="Georgia, serif">♜</text>
+      <text x="24" y="44" fontSize="3.0" fill="#6b4423" opacity="0.18" fontFamily="Georgia, serif">♜</text>
+
+      <g transform="translate(6 9)" opacity="0.78">
+        <rect x="0" y="0" width="13" height="8" rx="0.8" fill="#efe3c2" stroke="#8c6239" strokeWidth="0.35" />
+        {[1, 2, 3, 4, 5, 6].map((value, index) => (
+          <g key={value} transform={`translate(1 ${1 + index * 1.08})`}>
+            <text x="0" y="0.45" fontSize="0.72" fontWeight="900" fill="#5b3920">{value}</text>
+            <rect x="2" y="-0.3" width={2.0 + index * 0.55} height="0.5" rx="0.15" fill="#60666e" />
+            <text x="11.4" y="0.45" textAnchor="end" fontSize="0.72" fontWeight="900" fill="#8a1c1c">
+              {[1, 2, 4, 7, 10, 15][index]}
+            </text>
+          </g>
+        ))}
+      </g>
+    </g>
+  );
 }
 
 function StartingTicketSelectionScreen({
@@ -1229,32 +1356,34 @@ export default function GameBoard() {
           </div>
 
           <div className="overflow-auto p-2">
-            <svg viewBox="0 0 100 75" className="min-h-[620px] w-full min-w-[820px] rounded-[1.5rem] bg-[#cfe1c5]">
+            <svg viewBox="0 0 100 75" className="min-h-[620px] w-full min-w-[940px] rounded-[1.5rem] bg-[#d7c29a]">
               <defs>
-                <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="0.7" stdDeviation="0.7" floodOpacity="0.35" />
+                <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+                  <feDropShadow dx="0" dy="0.55" stdDeviation="0.45" floodOpacity="0.45" />
+                </filter>
+                <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feDropShadow dx="0" dy="0.35" stdDeviation="0.35" floodOpacity="0.45" />
                 </filter>
                 <linearGradient id="water" x1="0%" x2="100%" y1="0%" y2="100%">
-                  <stop offset="0%" stopColor="#d9f0ff" />
-                  <stop offset="100%" stopColor="#9fd0ec" />
+                  <stop offset="0%" stopColor="#dceef3" />
+                  <stop offset="48%" stopColor="#b8dbe5" />
+                  <stop offset="100%" stopColor="#8fbecd" />
                 </linearGradient>
+                <radialGradient id="land" cx="48%" cy="45%" r="75%">
+                  <stop offset="0%" stopColor="#f1dfbb" />
+                  <stop offset="58%" stopColor="#d7b988" />
+                  <stop offset="100%" stopColor="#b88452" />
+                </radialGradient>
+                <pattern id="paperNoise" width="3" height="3" patternUnits="userSpaceOnUse">
+                  <rect width="3" height="3" fill="#fff7df" />
+                  <path d="M0 1.5 H3 M1.5 0 V3" stroke="#7a5b36" strokeWidth="0.08" opacity="0.35" />
+                  <circle cx="0.8" cy="0.7" r="0.12" fill="#5b3920" opacity="0.22" />
+                  <circle cx="2.2" cy="2.1" r="0.1" fill="#5b3920" opacity="0.18" />
+                </pattern>
               </defs>
 
-              <rect x="0" y="0" width="100" height="75" fill="url(#water)" />
-              <path
-                d="M8 13 C18 3, 33 8, 42 14 C53 22, 67 14, 82 22 C95 29, 97 48, 90 62 C80 72, 62 70, 47 66 C34 62, 19 70, 8 62 C-1 52, 1 26, 8 13 Z"
-                fill="#d4d99f"
-                stroke="#9ca36a"
-                strokeWidth="0.6"
-                opacity="0.95"
-              />
-              <path
-                d="M33 43 C38 39, 47 40, 54 45 C63 51, 69 57, 72 67 C61 71, 47 70, 37 64 C29 59, 28 49, 33 43 Z"
-                fill="#c9d58d"
-                stroke="#9ca36a"
-                strokeWidth="0.5"
-                opacity="0.9"
-              />
+              <DecorativeMapBackground />
+              <BoardScoreTrack />
 
               {routes.map((route) => {
                 const meta = ROUTE_META[route.color];
@@ -1272,16 +1401,28 @@ export default function GameBoard() {
                   return (
                     <g key={`${route.id}-${index}`} transform={`translate(${x} ${y}) rotate(${geometry.angle})`}>
                       <rect
-                        x="-1.25"
-                        y="-0.72"
-                        width="2.5"
-                        height="1.44"
-                        rx="0.35"
+                        x="-1.32"
+                        y="-0.68"
+                        width="2.64"
+                        height="1.36"
+                        rx="0.28"
                         fill={fill}
                         stroke={stroke}
-                        strokeWidth={selected ? 0.35 : 0.18}
+                        strokeWidth={selected ? 0.34 : 0.18}
                         filter="url(#shadow)"
                       />
+                      <rect
+                        x="-0.92"
+                        y="-0.36"
+                        width="1.84"
+                        height="0.72"
+                        rx="0.18"
+                        fill="rgba(255,255,255,0.14)"
+                        stroke="rgba(15,23,42,0.14)"
+                        strokeWidth="0.08"
+                      />
+                      <circle cx="-0.82" cy="0.46" r="0.13" fill={owner ? "#ffffff" : "rgba(15,23,42,0.45)"} opacity="0.65" />
+                      <circle cx="0.82" cy="0.46" r="0.13" fill={owner ? "#ffffff" : "rgba(15,23,42,0.45)"} opacity="0.65" />
                       {route.type === "ferry" && index < (route.ferryLocos ?? 1) && (
                         <text
                           x="0"
@@ -1316,18 +1457,22 @@ export default function GameBoard() {
 
               {CITIES.map((city) => (
                 <g key={city.id}>
-                  <circle cx={city.x} cy={city.y} r="1.65" fill="#111827" stroke="#ffffff" strokeWidth="0.7" />
-                  <circle cx={city.x} cy={city.y} r="0.75" fill="#fef3c7" />
+                  <circle cx={city.x} cy={city.y} r="1.45" fill="#b45309" stroke="#fff7d6" strokeWidth="0.55" filter="url(#shadow)" />
+                  <circle cx={city.x} cy={city.y} r="0.82" fill="#f59e0b" stroke="#78350f" strokeWidth="0.18" />
+                  <circle cx={city.x} cy={city.y} r="0.34" fill="#fff7ed" opacity="0.8" />
                   <text
                     x={city.x + (city.labelDx ?? 1)}
                     y={city.y + (city.labelDy ?? -0.8)}
                     textAnchor={city.labelAnchor ?? "start"}
-                    fontSize="1.65"
+                    fontSize="1.18"
                     fontWeight="900"
-                    fill="#0f172a"
-                    stroke="#f8fafc"
-                    strokeWidth="0.22"
+                    fontFamily="Georgia, 'Times New Roman', serif"
+                    letterSpacing="0.04em"
+                    fill="#4a1f12"
+                    stroke="#f8e7bf"
+                    strokeWidth="0.28"
                     paintOrder="stroke"
+                    style={{ textTransform: "uppercase" }}
                   >
                     {city.name}
                   </text>
