@@ -53,6 +53,10 @@ export type ClaimRoutePayload = {
   route_id: number;
 };
 
+export type EndTurnPayload = {
+  player_token: string;
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 function buildApiUrl(path: string): string {
@@ -92,6 +96,13 @@ export function startGame(gameId: string, payload: StartGamePayload) {
 
 export function claimRoute(gameId: string, payload: ClaimRoutePayload) {
   return requestJson<void>(`/v1/games/${gameId}/claim-route`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function endTurn(gameId: string, payload: EndTurnPayload) {
+  return requestJson<void>(`/v1/games/${gameId}/end-turn`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

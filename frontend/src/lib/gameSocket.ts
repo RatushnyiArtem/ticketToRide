@@ -47,6 +47,9 @@ export function connectGameSocket(
     claimRoute: (playerToken: string, routeId: number) =>
       socket.readyState === WebSocket.OPEN &&
       socket.send(JSON.stringify({ type: "claim_route", player_token: playerToken, route_id: routeId })),
+    endTurn: (playerToken: string) =>
+      socket.readyState === WebSocket.OPEN &&
+      socket.send(JSON.stringify({ type: "end_turn", player_token: playerToken })),
     close: () => socket.close(),
   };
 }

@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
+import { claimRoute as claimRouteOnServer, endTurn as endTurnOnServer, getGameState, type GameRoute as ServerGameRoute, type GameState } from "../../lib/gameApi";
+import { connectGameSocket } from "../../lib/gameSocket";
 
 type PlayerColor = "red" | "blue" | "green" | "yellow" | "black";
 type CardColor =
@@ -135,6 +137,9 @@ interface BoardLobbySnapshot {
   currentUserId?: string | number;
   currentUsername?: string;
   playerToken?: string;
+  player_token?: string;
+  hostToken?: string;
+  host_token?: string;
   startedAt: string;
 }
 
@@ -146,6 +151,7 @@ interface StartingTicketOffer {
 
 const ACTIVE_LOBBY_STORAGE_KEY = "ttr_current_lobby";
 const STARTING_TICKETS_STORAGE_PREFIX = "ttr_selected_starting_tickets";
+const TURN_SECONDS = 90;
 const PLAYER_COLOR_ORDER: PlayerColor[] = ["red", "blue", "green", "yellow", "black"];
 const PLAYER_AVATARS = ["🚂", "🧑‍💻", "🦊", "🦉", "😎"];
 
@@ -424,6 +430,103 @@ const INITIAL_ROUTES: Route[] = ROUTE_DEFS.map((route) => ({
   ...route,
   points: ROUTE_POINTS[route.length] ?? 0,
 }));
+
+
+function normalizeServerText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function serverCityToCityId(value: string): CityId | null {
+  const normalized = normalizeServerText(value);
+  const aliases: Record<string, CityId> = {
+    kobenhavn: "copenhagen",
+    copenhagen: "copenhagen",
+    moskva: "moscow",
+    moscow: "moscow",
+    warszawa: "warsaw",
+    warsaw: "warsaw",
+    bucurersti: "bucharest",
+    bucuresti: "bucharest",
+    wien: "vienna",
+    vienna: "vienna",
+    munchen: "munich",
+    munich: "munich",
+    athina: "athens",
+    athens: "athens",
+    zagrab: "zagreb",
+    zagreb: "zagreb",
+  };
+
+  if (aliases[normalized]) return aliases[normalized];
+
+  const byId = CITIES.find((city) => normalizeServerText(city.id) === normalized);
+  if (byId) return byId.id;
+
+  const byName = CITIES.find((city) => normalizeServerText(city.name) === normalized);
+  return byName?.id ?? null;
+}
+
+function makeRouteMatchKey(from: CityId, to: CityId, length: number): string {
+  return [from, to].sort().join("--") + `--${length}`;
+}
+
+function buildServerRouteMappings(serverRoutes: ServerGameRoute[]): {
+  localToServer: Record<string, number>;
+  claimedByLocalRouteId: Record<string, string | null>;
+} {
+  const localGroups = new Map<string, Route[]>();
+
+  INITIAL_ROUTES.forEach((route) => {
+    const key = makeRouteMatchKey(route.from, route.to, route.length);
+    localGroups.set(key, [...(localGroups.get(key) ?? []), route]);
+  });
+
+  const usedLocalRouteIds = new Set<string>();
+  const localToServer: Record<string, number> = {};
+  const claimedByLocalRouteId: Record<string, string | null> = {};
+
+  serverRoutes.forEach((serverRoute) => {
+    const from = serverCityToCityId(serverRoute.city_a);
+    const to = serverCityToCityId(serverRoute.city_b);
+
+    if (!from || !to) return;
+
+    const key = makeRouteMatchKey(from, to, serverRoute.length);
+    const candidates = localGroups.get(key) ?? [];
+    const localRoute = candidates.find((candidate) => !usedLocalRouteIds.has(candidate.id));
+
+    if (!localRoute) return;
+
+    usedLocalRouteIds.add(localRoute.id);
+    localToServer[localRoute.id] = serverRoute.id;
+    claimedByLocalRouteId[localRoute.id] = serverRoute.claimed_by_player_id
+      ? String(serverRoute.claimed_by_player_id)
+      : null;
+  });
+
+  return { localToServer, claimedByLocalRouteId };
+}
+
+function getSnapshotCurrentUserId(snapshot: BoardLobbySnapshot | null): string | null {
+  const directId = snapshot?.currentUserId;
+  if (directId !== undefined && directId !== null) return String(directId);
+
+  const currentUsername = snapshot?.currentUsername;
+  if (!currentUsername) return null;
+
+  const matchedPlayer = snapshot?.players?.find((player, index) => getPlayerDisplayName(player, index) === currentUsername);
+  const matchedId = matchedPlayer?.id ?? matchedPlayer?.user_id;
+
+  return matchedId !== undefined && matchedId !== null ? String(matchedId) : null;
+}
+
+function getSnapshotPlayerToken(snapshot: BoardLobbySnapshot | null): string | null {
+  return snapshot?.playerToken ?? snapshot?.player_token ?? null;
+}
 
 const INITIAL_TICKETS: Ticket[] = [
   { from: "london", to: "roma", points: 10 },
@@ -984,10 +1087,23 @@ export default function GameBoard() {
     ticketId(prepared.humanTicketOffer.shortTickets[0]),
   ]);
 
-  const activePlayer = players[activePlayerIndex];
+  const lobbySnapshot = useMemo(() => readLobbySnapshot(), []);
+  const localPlayerId = useMemo(() => getSnapshotCurrentUserId(lobbySnapshot), [lobbySnapshot]);
+  const playerToken = useMemo(() => getSnapshotPlayerToken(lobbySnapshot), [lobbySnapshot]);
+  const isOnlineGame = Boolean(gameId && playerToken);
+  const socketRef = useRef<ReturnType<typeof connectGameSocket> | null>(null);
+  const serverRouteIdByLocalRouteIdRef = useRef<Record<string, number>>({});
+  const handledExpiredTurnRef = useRef<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<"offline" | "connecting" | "connected" | "closed">(
+    isOnlineGame ? "connecting" : "offline",
+  );
+  const [turnSecondsLeft, setTurnSecondsLeft] = useState(TURN_SECONDS);
+
+  const activePlayer = players[activePlayerIndex] ?? players[0];
   const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
   const cityById = useMemo(() => new Map(CITIES.map((city) => [city.id, city])), []);
-  const currentCanClaim = selectedRoute ? canClaimRoute(activePlayer, selectedRoute, selectedColor) : false;
+  const isMyTurn = !isOnlineGame || Boolean(activePlayer && localPlayerId && String(activePlayer.id) === String(localPlayerId));
+  const currentCanClaim = Boolean(selectedRoute && activePlayer && isMyTurn && canClaimRoute(activePlayer, selectedRoute, selectedColor));
 
   const rankedPlayers = [...players].sort((a, b) => {
     const aScore = a.score + completedTickets(a, routes);
@@ -998,6 +1114,177 @@ export default function GameBoard() {
   function addLog(text: string) {
     setLog((items) => [{ id: Date.now() + Math.random(), text }, ...items].slice(0, 12));
   }
+
+  function applyServerGameState(state: GameState) {
+    const routeMappings = buildServerRouteMappings(state.routes);
+    serverRouteIdByLocalRouteIdRef.current = routeMappings.localToServer;
+
+    setRoutes((currentRoutes) =>
+      currentRoutes.map((route) => {
+        if (!(route.id in routeMappings.claimedByLocalRouteId)) return route;
+
+        return {
+          ...route,
+          ownerId: routeMappings.claimedByLocalRouteId[route.id] ?? undefined,
+        };
+      }),
+    );
+
+    setPlayers((currentPlayers) => {
+      const existingById = new Map(currentPlayers.map((player) => [String(player.id), player]));
+      const serverPlayers = [...state.players].sort((a, b) => a.turn_order - b.turn_order);
+
+      const mappedPlayers: Player[] = serverPlayers.map((serverPlayer, index) => {
+        const id = String(serverPlayer.id);
+        const existing = existingById.get(id);
+        const color = existing?.color ?? PLAYER_COLOR_ORDER[index] ?? "red";
+
+        return {
+          id,
+          name: serverPlayer.name ?? existing?.name ?? `Player ${index + 1}`,
+          avatar: existing?.avatar ?? PLAYER_AVATARS[index] ?? "🚂",
+          color,
+          colorHex: PLAYER_COLORS[color],
+          score: serverPlayer.score ?? existing?.score ?? 0,
+          trains: serverPlayer.train_cars_left ?? existing?.trains ?? 35,
+          hand: existing?.hand ?? emptyHand(),
+          tickets: existing?.tickets ?? [],
+          isHuman: localPlayerId ? id === localPlayerId : existing?.isHuman ?? index === 0,
+          hasSelectedStartingTickets: existing?.hasSelectedStartingTickets ?? false,
+        };
+      });
+
+      if (mappedPlayers.length === 0) return currentPlayers;
+
+      const localIndex = localPlayerId ? mappedPlayers.findIndex((player) => String(player.id) === localPlayerId) : -1;
+      const reorderedPlayers = [...mappedPlayers];
+
+      if (localIndex > 0) {
+        const [localPlayer] = reorderedPlayers.splice(localIndex, 1);
+        reorderedPlayers.unshift(localPlayer);
+      }
+
+      const activeServerPlayerId = state.current_player_id ? String(state.current_player_id) : null;
+      const nextActiveIndex = activeServerPlayerId
+        ? reorderedPlayers.findIndex((player) => String(player.id) === activeServerPlayerId)
+        : 0;
+
+      setActivePlayerIndex(nextActiveIndex >= 0 ? nextActiveIndex : 0);
+      return reorderedPlayers;
+    });
+  }
+
+  async function syncFromServer(silent = false) {
+    if (!gameId) return;
+
+    try {
+      const state = await getGameState(gameId);
+      applyServerGameState(state);
+    } catch (error) {
+      if (!silent) {
+        addLog(error instanceof Error ? error.message : "Could not synchronize game state.");
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!gameId || !playerToken) return;
+
+    let cancelled = false;
+    setConnectionStatus("connecting");
+
+    const safeSync = async () => {
+      if (cancelled) return;
+      await syncFromServer(true);
+    };
+
+    safeSync();
+
+    const realtime = connectGameSocket(gameId, playerToken, {
+      onOpen: () => {
+        setConnectionStatus("connected");
+        realtime.requestState();
+        safeSync();
+      },
+      onClose: () => setConnectionStatus("closed"),
+      onError: (message) => addLog(message),
+      onMessage: (event) => {
+        const maybeState = event.payload as Partial<GameState> | undefined;
+
+        if (maybeState?.players && maybeState?.routes) {
+          applyServerGameState(maybeState as GameState);
+          return;
+        }
+
+        const eventsThatNeedSync = new Set([
+          "game_state",
+          "state",
+          "state_changed",
+          "game_started",
+          "player_joined",
+          "player_left",
+          "route_claimed",
+          "turn_changed",
+          "turn_expired",
+        ]);
+
+        if (eventsThatNeedSync.has(event.type)) {
+          safeSync();
+        }
+      },
+    });
+
+    socketRef.current = realtime;
+
+    const pingId = window.setInterval(() => realtime.ping(), 25_000);
+    const pollId = window.setInterval(() => safeSync(), 5_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(pingId);
+      window.clearInterval(pollId);
+      realtime.close();
+      socketRef.current = null;
+    };
+  }, [gameId, playerToken]);
+
+  useEffect(() => {
+    setTurnSecondsLeft(TURN_SECONDS);
+    handledExpiredTurnRef.current = null;
+  }, [activePlayer?.id, activePlayerIndex]);
+
+  useEffect(() => {
+    if (showStartingTicketSelection || !activePlayer) return;
+
+    const timerId = window.setInterval(() => {
+      setTurnSecondsLeft((seconds) => Math.max(0, seconds - 1));
+    }, 1_000);
+
+    return () => window.clearInterval(timerId);
+  }, [showStartingTicketSelection, activePlayer?.id]);
+
+  useEffect(() => {
+    if (showStartingTicketSelection || turnSecondsLeft > 0 || !activePlayer) return;
+
+    const expiredTurnKey = `${activePlayer.id}-${activePlayerIndex}`;
+    if (handledExpiredTurnRef.current === expiredTurnKey) return;
+
+    handledExpiredTurnRef.current = expiredTurnKey;
+    addLog(`${activePlayer.name}'s 90 seconds expired. Turn skipped.`);
+
+    if (isOnlineGame) {
+      if (isMyTurn && gameId && playerToken) {
+        socketRef.current?.endTurn(playerToken);
+        endTurnOnServer(gameId, { player_token: playerToken })
+          .then(() => syncFromServer(true))
+          .catch(() => socketRef.current?.requestState());
+      }
+
+      return;
+    }
+
+    nextTurn();
+  }, [turnSecondsLeft, showStartingTicketSelection, activePlayer?.id, activePlayerIndex, isOnlineGame, isMyTurn, gameId, playerToken]);
 
   function nextTurn() {
     setCardsDrawnThisTurn(0);
@@ -1013,6 +1300,11 @@ export default function GameBoard() {
   }
 
   function drawBlindCard() {
+    if (!isMyTurn) {
+      addLog("Wait for your turn.");
+      return;
+    }
+
     if (cardsDrawnThisTurn >= 2) return;
 
     if (deck.length === 0) {
@@ -1034,6 +1326,11 @@ export default function GameBoard() {
   }
 
   function drawMarketCard(index: number) {
+    if (!isMyTurn) {
+      addLog("Wait for your turn.");
+      return;
+    }
+
     if (cardsDrawnThisTurn >= 2) return;
 
     const card = market[index];
@@ -1064,9 +1361,14 @@ export default function GameBoard() {
     if (newDrawCount >= 2) nextTurn();
   }
 
-  function claimSelectedRoute() {
+  async function claimSelectedRoute() {
     if (!selectedRoute) {
       addLog("Select a route first.");
+      return;
+    }
+
+    if (!isMyTurn) {
+      addLog("Wait for your turn.");
       return;
     }
 
@@ -1082,6 +1384,28 @@ export default function GameBoard() {
 
     const claimColor = getClaimColor(selectedRoute, selectedColor);
     const requiredLocos = selectedRoute.type === "ferry" ? selectedRoute.ferryLocos ?? 1 : 0;
+
+    if (isOnlineGame && gameId && playerToken) {
+      const serverRouteId = serverRouteIdByLocalRouteIdRef.current[selectedRoute.id];
+
+      if (serverRouteId === undefined) {
+        addLog("Cannot match this route with the server route id. Synchronizing again...");
+        await syncFromServer(true);
+        return;
+      }
+
+      try {
+        await claimRouteOnServer(gameId, { player_token: playerToken, route_id: serverRouteId });
+        socketRef.current?.requestState();
+        await syncFromServer(true);
+        addLog(`${activePlayer.name} claimed ${cityName(selectedRoute.from)} → ${cityName(selectedRoute.to)}.`);
+        setSelectedRouteId(null);
+      } catch (error) {
+        addLog(error instanceof Error ? error.message : "Could not claim route on server.");
+      }
+
+      return;
+    }
 
     setRoutes((currentRoutes) =>
       currentRoutes.map((route) => (route.id === selectedRoute.id ? { ...route, ownerId: activePlayer.id } : route)),
@@ -1216,7 +1540,7 @@ export default function GameBoard() {
                 <button
                   key={player.id}
                   type="button"
-                  onClick={() => setActivePlayerIndex(index)}
+                  onClick={() => !isOnlineGame && setActivePlayerIndex(index)}
                   className={`rounded-3xl border p-4 text-left shadow-2xl shadow-black/30 backdrop-blur-xl transition hover:-translate-y-0.5 ${
                     index === activePlayerIndex
                       ? "border-white/25 bg-slate-800/95 ring-2 ring-white/15"
@@ -1275,8 +1599,21 @@ export default function GameBoard() {
                 Active player: <span className="font-black">{activePlayer.name}</span>
               </p>
             </div>
-            <div className="rounded-full bg-slate-900 px-4 py-2 text-sm font-black text-white">
-              {deck.length} cards in deck
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className={`rounded-full px-4 py-2 text-sm font-black ${isMyTurn ? "bg-emerald-500 text-white" : "bg-slate-900 text-white"}`}>
+                {isMyTurn ? "Your turn" : `${activePlayer.name}'s turn`}
+              </div>
+              <div className={`rounded-full px-4 py-2 text-sm font-black ${turnSecondsLeft <= 15 ? "bg-red-600 text-white" : "bg-slate-900 text-white"}`}>
+                ⏱ {turnSecondsLeft}s
+              </div>
+              <div className="rounded-full bg-slate-900 px-4 py-2 text-sm font-black text-white">
+                {deck.length} cards in deck
+              </div>
+              {isOnlineGame && (
+                <div className="rounded-full bg-white/70 px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-slate-900">
+                  WS: {connectionStatus}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1454,7 +1791,8 @@ export default function GameBoard() {
                   key={`${card}-${index}`}
                   type="button"
                   onClick={() => drawMarketCard(index)}
-                  className="transition hover:-translate-y-1"
+                  disabled={!isMyTurn}
+                  className="transition hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
                 >
                   <TrainCard card={card} />
                 </button>
@@ -1464,7 +1802,8 @@ export default function GameBoard() {
             <button
               type="button"
               onClick={drawBlindCard}
-              className="mt-3 w-full rounded-2xl bg-white/10 px-4 py-3 font-black text-white transition hover:bg-white/15"
+              disabled={!isMyTurn || cardsDrawnThisTurn >= 2}
+              className="mt-3 w-full rounded-2xl bg-white/10 px-4 py-3 font-black text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Draw blind card ({cardsDrawnThisTurn}/2)
             </button>
