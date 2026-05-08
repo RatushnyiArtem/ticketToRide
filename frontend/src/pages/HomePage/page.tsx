@@ -1,7 +1,7 @@
 import React from 'react';
 import FeatureCard from '../../components/FeatureCard';
 import Button from '../../components/Button';
-
+import { useNavigate } from 'react-router';
 const featuresData = [
   {
     icon: "🚂",
@@ -36,6 +36,7 @@ const featuresData = [
 ];
 
 export default function Home() {
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-[#f8f9fa] font-sans text-gray-800">
       
@@ -52,8 +53,15 @@ export default function Home() {
               <Button variant="ghost" className="px-4 py-1.5">Find Games</Button>
               <button className="hover:text-gray-100 transition">Market</button>
             </div>
+            
           </div>
-          <Button variant="login" className="px-6 py-1.5">Login</Button>
+         <Button 
+  variant="login" 
+  className="px-6 py-1.5"
+  onClick={() => navigate('/login')} // 👈 Add this click event!
+>
+  Login
+</Button>
         </nav>
 
         {/* Hero Content */}
