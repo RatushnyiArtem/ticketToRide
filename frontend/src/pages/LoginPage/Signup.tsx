@@ -20,7 +20,7 @@ export default function Signup() {
       clearAuthToken();
       const response = await register({ username, email, password });
       saveAuthToken(response.token);
-      navigate('/game');
+      navigate('/lobby');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create account');
     } finally {

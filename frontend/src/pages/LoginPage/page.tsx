@@ -20,7 +20,7 @@ export default function Login() {
       const response = await login({ username, password });
       saveAuthToken(response.token);
       await fetchMe(response.token);
-      navigate('/game');
+      navigate('/lobby');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in');
     } finally {
