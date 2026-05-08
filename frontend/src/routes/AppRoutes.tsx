@@ -6,6 +6,7 @@ const LoginPage = React.lazy(() => import("../pages/LoginPage/page"));
 const SignupPage = React.lazy(() => import("../pages/LoginPage/Signup"));
 const ForgotPasswordPage = React.lazy(() => import("../pages/LoginPage/ForgotPassword"));
 const GamePage = React.lazy(() => import("../pages/GamePage/page"));
+const LobbyPage = React.lazy(() => import("../pages/LobbyPage/page"));
 
 const AppRoutes = () => {
   return (
@@ -17,6 +18,7 @@ const AppRoutes = () => {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/game" element={<GamePage />} />
+        <Route path="/lobby" element={<LobbyPage />} />
         </Routes>
     </React.Suspense>
   );
