@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Button from '../../components/Button';
 import { clearAuthToken, register, saveAuthToken } from '../../lib/authApi';
+import { useUser } from '../../context/UserContext';
 
 export default function Signup() {
   const navigate = useNavigate();
+  const { setUser } = useUser();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,6 +22,11 @@ export default function Signup() {
       clearAuthToken();
       const response = await register({ username, email, password });
       saveAuthToken(response.token);
+      setUser({
+        user_id: response.user_id,
+        username: response.username,
+        email: response.email,
+      });
       navigate('/lobby');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create account');

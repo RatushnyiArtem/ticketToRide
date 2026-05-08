@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import Button from '../../components/Button';
-import { clearAuthToken, fetchMe, login, saveAuthToken } from '../../lib/authApi';
+import { clearAuthToken, login, saveAuthToken } from '../../lib/authApi';
+import { useUser } from '../../context/UserContext';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { setUser } = useUser();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -19,7 +21,11 @@ export default function Login() {
       clearAuthToken();
       const response = await login({ username, password });
       saveAuthToken(response.token);
-      await fetchMe(response.token);
+      setUser({
+        user_id: response.user_id,
+        username: response.username,
+        email: response.email,
+      });
       navigate('/lobby');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in');
