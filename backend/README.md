@@ -11,6 +11,7 @@ Built with FastAPI + SQLAlchemy + SQLite.
 - current game state endpoint
 - one basic turn action: claim route
 - turn order, score, and train cars updates
+- real-time WebSocket sync for each `game_id`
 - user auth routes: register, login, me, logout (HttpOnly cookie token)
 - seeded demo routes in SQLite
 
@@ -41,6 +42,13 @@ Open Swagger: http://127.0.0.1:8000/docs
 4. `POST /api/v1/games/{game_id}/claim-route` - make one turn
 5. `GET /api/v1/games/{game_id}` - show updated state
 
+## Real-time multiplayer
+
+- WebSocket endpoint: `ws://127.0.0.1:8000/api/v1/realtime/games/{game_id}?token=<player_token>`
+- On connect it sends a `game_state` snapshot immediately.
+- After `join`, `start`, or `claim-route`, all connected clients receive a fresh `game_state` broadcast.
+- The frontend online flow is: `login/signup` → `/lobby` → `/game/{game_id}`.
+
 ## Auth endpoints
 
 - `POST /api/v1/auth/register`
@@ -69,6 +77,5 @@ It resets DB, runs a short game flow, and prints final state.
 
 - add draw train cards action
 - add destination tickets and completion scoring
-- add websocket events for real-time UI updates
 - add authentication (JWT) and game lobby permissions
 

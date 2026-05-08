@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useUser } from "../../context/UserContext";
 import Button from "../../components/Button";
@@ -130,6 +130,34 @@ export default function LobbyPage() {
   ]);
   const [messageText, setMessageText] = useState("");
 
+  const fetchGames = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    if (!silent) setIsLoading(true);
+    setListError("");
+
+    try {
+      const token = localStorage.getItem("ttr_auth_token");
+      const response = await fetch("/api/v1/games", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to load available lobbies");
+      }
+
+      const data = await response.json();
+      setGames(normalizeGames(data));
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Failed to load available lobbies";
+      setListError(errorMsg);
+      console.error("Failed to fetch games:", error);
+    } finally {
+      if (!silent) setIsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) {
       navigate("/login");
@@ -161,35 +189,31 @@ export default function LobbyPage() {
     };
 
     fetchUserProfile();
-    fetchGames();
-  }, [isAuthenticated, navigate, setUser]);
+    void fetchGames();
 
-  const fetchGames = async () => {
-    setIsLoading(true);
-    setListError("");
+    const intervalId = window.setInterval(() => {
+      void fetchGames({ silent: true });
+    }, 3500);
 
-    try {
-      const token = localStorage.getItem("ttr_auth_token");
-      const response = await fetch("/api/v1/games", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+    const handleFocus = () => {
+      void fetchGames({ silent: true });
+    };
 
-      if (!response.ok) {
-        throw new Error("Failed to load available lobbies");
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        void fetchGames({ silent: true });
       }
+    };
 
-      const data = await response.json();
-      setGames(normalizeGames(data));
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Failed to load available lobbies";
-      setListError(errorMsg);
-      console.error("Failed to fetch games:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [fetchGames, isAuthenticated, navigate, setUser]);
 
   const addSystemMessage = (text: string) => {
     const now = new Date();
@@ -245,6 +269,11 @@ export default function LobbyPage() {
       setShowCreateGame(false);
       setCreateError("");
 
+      if (createdGame?.game_id) {
+        localStorage.setItem(`ttr_player_token_${createdGame.game_id}`, createdGame.player_token);
+        localStorage.setItem(`ttr_player_id_${createdGame.game_id}`, createdGame.player_id);
+      }
+
       await fetchGames();
 
       const normalizedCreatedGame = normalizeGame({
@@ -264,6 +293,9 @@ export default function LobbyPage() {
       }
 
       addSystemMessage(`✨ ${user?.username} created lobby: ${gameName}`);
+      if (createdGame?.game_id) {
+        navigate(`/game/${createdGame.game_id}`);
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Failed to create lobby";
       setCreateError(errorMsg);
@@ -303,6 +335,10 @@ export default function LobbyPage() {
 
       if (joinData?.player_token) {
         localStorage.setItem(`ttr_player_token_${gameId}`, joinData.player_token);
+      }
+
+      if (joinData?.player_id) {
+        localStorage.setItem(`ttr_player_id_${joinData?.game_id || gameId}`, joinData.player_id);
       }
 
       navigate(`/game/${joinData?.game_id || gameId}`);
@@ -595,7 +631,7 @@ export default function LobbyPage() {
                 <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
                   ❌ {listError}
                 </p>
-                <Button variant="secondary" onClick={fetchGames} className="px-8">
+                <Button variant="secondary" onClick={() => void fetchGames()} className="px-8">
                   Try Again
                 </Button>
               </div>

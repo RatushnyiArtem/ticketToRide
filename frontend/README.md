@@ -1,5 +1,21 @@
 # React + TypeScript + Vite
 
+## Ticket to Ride frontend notes
+
+This frontend now talks to the FastAPI backend for auth, lobby, and online game rooms.
+
+Quick flow:
+
+1. `POST /api/v1/auth/register` or `POST /api/v1/auth/login`
+2. Open `/lobby`
+3. Create a lobby or join an existing one
+4. Go to `/game/{gameId}` for the WebSocket-driven room
+
+Development proxy:
+
+- `vite.config.ts` proxies `/api` to `http://127.0.0.1:8000`
+- WebSocket connections use the same `/api` prefix in dev
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
