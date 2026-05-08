@@ -87,9 +87,11 @@ interface Route {
 }
 
 interface Ticket {
+  id?: string;
   from: CityId;
   to: CityId;
   points: number;
+  type?: "long" | "short";
 }
 
 interface Player {
@@ -103,12 +105,47 @@ interface Player {
   hand: Record<CardColor, number>;
   tickets: Ticket[];
   isHuman: boolean;
+  hasSelectedStartingTickets?: boolean;
 }
 
 interface LogItem {
   id: number;
   text: string;
 }
+
+interface LobbySnapshotPlayer {
+  id?: string | number;
+  user_id?: string | number;
+  username?: string;
+  name?: string;
+  email?: string;
+  avatar?: string;
+  avatar_url?: string;
+  image?: string;
+}
+
+interface BoardLobbySnapshot {
+  gameId: string;
+  name: string;
+  maxPlayers: number;
+  currentPlayers: number;
+  status: "waiting" | "started" | "finished";
+  players: LobbySnapshotPlayer[];
+  currentUserId?: string | number;
+  currentUsername?: string;
+  playerToken?: string;
+  startedAt: string;
+}
+
+interface StartingTicketOffer {
+  longTicket: Ticket;
+  shortTickets: Ticket[];
+  allTickets: Ticket[];
+}
+
+const ACTIVE_LOBBY_STORAGE_KEY = "ttr_current_lobby";
+const PLAYER_COLOR_ORDER: PlayerColor[] = ["red", "blue", "green", "yellow", "black"];
+const PLAYER_AVATARS = ["🚂", "🧑‍💻", "🦊", "🦉", "😎"];
 
 const CARD_COLORS: CardColor[] = [
   "red",
@@ -241,55 +278,54 @@ const PLAYER_COLORS: Record<PlayerColor, string> = {
 };
 
 const CITIES: City[] = [
-  { id: "edinburgh", name: "Edinburgh", x: 12, y: 8, labelDx: 1.2, labelDy: -1.3 },
-  { id: "london", name: "London", x: 18, y: 24, labelDx: 1.2, labelDy: -1.2 },
-  { id: "amsterdam", name: "Amsterdam", x: 29, y: 25, labelDx: 1.1, labelDy: -1.25 },
-  { id: "bruxelles", name: "Bruxelles", x: 24, y: 30, labelDx: 1.15, labelDy: -0.55 },
-  { id: "dieppe", name: "Dieppe", x: 20, y: 34, labelDx: 1.1, labelDy: -0.7 },
-  { id: "brest", name: "Brest", x: 13, y: 36, labelDx: -0.4, labelDy: -0.9, labelAnchor: "end" },
-  { id: "paris", name: "Paris", x: 20, y: 39, labelDx: 1.25, labelDy: -0.8 },
-  { id: "pamplona", name: "Pamplona", x: 17, y: 56, labelDx: 1.1, labelDy: -0.8 },
-  { id: "madrid", name: "Madrid", x: 8, y: 60, labelDx: 1.1, labelDy: -0.9 },
-  { id: "lisboa", name: "Lisboa", x: 5, y: 62.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "cadiz", name: "Cadiz", x: 8, y: 67, labelDx: 1.1, labelDy: -0.8 },
-  { id: "barcelona", name: "Barcelona", x: 22, y: 62, labelDx: 1.1, labelDy: -0.8 },
-  { id: "marseille", name: "Marseille", x: 31, y: 52, labelDx: 1.1, labelDy: -0.8 },
-  { id: "zurich", name: "Zürich", x: 35, y: 44, labelDx: 1.05, labelDy: -0.75 },
-  { id: "frankfurt", name: "Frankfurt", x: 37, y: 34, labelDx: 1.1, labelDy: -0.8 },
-  { id: "essen", name: "Essen", x: 38, y: 25.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "berlin", name: "Berlin", x: 48, y: 24, labelDx: 1.15, labelDy: -0.8 },
-  { id: "copenhagen", name: "København", x: 47, y: 15, labelDx: 1.1, labelDy: -0.8 },
-  { id: "stockholm", name: "Stockholm", x: 56, y: 7, labelDx: 1.05, labelDy: -0.8 },
-  { id: "danzig", name: "Danzig", x: 56, y: 21, labelDx: 1.1, labelDy: -0.8 },
-  { id: "riga", name: "Riga", x: 67, y: 12, labelDx: 1.1, labelDy: -0.8 },
-  { id: "petrograd", name: "Petrograd", x: 84, y: 10, labelDx: 1.1, labelDy: -0.8 },
-  { id: "moscow", name: "Moskva", x: 89, y: 24, labelDx: 1.1, labelDy: -0.8 },
-  { id: "warsaw", name: "Warszawa", x: 63, y: 31, labelDx: 1.1, labelDy: -0.8 },
-  { id: "wilno", name: "Wilno", x: 70, y: 27, labelDx: 1.1, labelDy: -0.8 },
-  { id: "smolensk", name: "Smolensk", x: 78, y: 30, labelDx: 1.1, labelDy: -0.8 },
-  { id: "kyiv", name: "Kyiv", x: 74, y: 37, labelDx: 1.1, labelDy: -0.8 },
-  { id: "kharkov", name: "Kharkov", x: 88, y: 41, labelDx: 1.1, labelDy: -0.8 },
-  { id: "rostov", name: "Rostov", x: 92, y: 51, labelDx: 1.1, labelDy: -0.8 },
-  { id: "sevastopol", name: "Sevastopol", x: 79, y: 53.8, labelDx: 1.1, labelDy: -0.8 },
-  { id: "sochi", name: "Sochi", x: 93, y: 60, labelDx: 1.1, labelDy: -0.8 },
-  { id: "erzurum", name: "Erzurum", x: 90, y: 66, labelDx: 1.1, labelDy: -0.8 },
-  { id: "angora", name: "Angora", x: 80, y: 66, labelDx: 1.1, labelDy: -0.8 },
-  { id: "constantinople", name: "Constantinople", x: 73, y: 61.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "smyrna", name: "Smyrna", x: 69, y: 66.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "athens", name: "Athina", x: 65, y: 62.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "sofia", name: "Sofia", x: 67, y: 56.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "bucharest", name: "București", x: 75, y: 51, labelDx: 1.1, labelDy: -0.8 },
-  { id: "budapest", name: "Budapest", x: 60, y: 46, labelDx: 1.1, labelDy: -0.8 },
-  { id: "vienna", name: "Wien", x: 54, y: 42, labelDx: 1.1, labelDy: -0.8 },
-  { id: "munich", name: "München", x: 45, y: 40, labelDx: 1.1, labelDy: -0.8 },
-  { id: "venezia", name: "Venezia", x: 46, y: 49.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "zagreb", name: "Zagrab", x: 52, y: 52.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "sarajevo", name: "Sarajevo", x: 57, y: 56.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "roma", name: "Roma", x: 42, y: 58.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "brindisi", name: "Brindisi", x: 54, y: 64, labelDx: 1.1, labelDy: -0.8 },
-  { id: "palermo", name: "Palermo", x: 48, y: 67.5, labelDx: 1.1, labelDy: -0.8 },
+  { id: "edinburgh", name: "Edinburgh", x: 9.2, y: 6.2, labelDx: 1.2, labelDy: -1.1 },
+  { id: "london", name: "London", x: 13.8, y: 21.2, labelDx: 1.05, labelDy: -1.0 },
+  { id: "amsterdam", name: "Amsterdam", x: 21.8, y: 20.4, labelDx: 0.9, labelDy: -1.0 },
+  { id: "bruxelles", name: "Bruxelles", x: 19.8, y: 25.4, labelDx: -0.45, labelDy: -1.05, labelAnchor: "end" },
+  { id: "dieppe", name: "Dieppe", x: 13.2, y: 31.9, labelDx: 1.0, labelDy: -0.8 },
+  { id: "brest", name: "Brest", x: 4.9, y: 36.9, labelDx: -0.55, labelDy: -0.8, labelAnchor: "end" },
+  { id: "paris", name: "Paris", x: 16.2, y: 35.2, labelDx: 0.95, labelDy: -0.8 },
+  { id: "pamplona", name: "Pamplona", x: 10.9, y: 49.4, labelDx: -0.55, labelDy: -0.9, labelAnchor: "end" },
+  { id: "madrid", name: "Madrid", x: 7.5, y: 60.3, labelDx: 0.95, labelDy: -0.85 },
+  { id: "lisboa", name: "Lisboa", x: 3.7, y: 63.2, labelDx: 0.95, labelDy: -0.75 },
+  { id: "cadiz", name: "Cadiz", x: 7.9, y: 69.5, labelDx: 0.95, labelDy: -0.75 },
+  { id: "barcelona", name: "Barcelona", x: 18.8, y: 62.5, labelDx: 0.95, labelDy: -0.85 },
+  { id: "marseille", name: "Marseille", x: 28.4, y: 53.2, labelDx: 0.95, labelDy: -0.8 },
+  { id: "zurich", name: "Zürich", x: 31.8, y: 43.4, labelDx: 0.9, labelDy: -0.8 },
+  { id: "frankfurt", name: "Frankfurt", x: 34.2, y: 31.9, labelDx: 0.95, labelDy: -0.85 },
+  { id: "essen", name: "Essen", x: 33.5, y: 21.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "berlin", name: "Berlin", x: 43.4, y: 20.8, labelDx: 0.95, labelDy: -0.85 },
+  { id: "copenhagen", name: "København", x: 49.0, y: 10.3, labelDx: 0.9, labelDy: -0.8 },
+  { id: "stockholm", name: "Stockholm", x: 57.9, y: 5.9, labelDx: 0.9, labelDy: -0.8 },
+  { id: "danzig", name: "Danzig", x: 56.9, y: 20.9, labelDx: 0.9, labelDy: -0.8 },
+  { id: "riga", name: "Riga", x: 69.0, y: 8.8, labelDx: 0.9, labelDy: -0.8 },
+  { id: "petrograd", name: "Petrograd", x: 84.5, y: 6.6, labelDx: 0.9, labelDy: -0.8 },
+  { id: "moscow", name: "Moskva", x: 92.2, y: 20.5, labelDx: -0.6, labelDy: -0.8, labelAnchor: "end" },
+  { id: "warsaw", name: "Warszawa", x: 62.4, y: 28.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "wilno", name: "Wilno", x: 70.2, y: 25.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "smolensk", name: "Smolensk", x: 79.2, y: 25.2, labelDx: 0.95, labelDy: -0.85 },
+  { id: "kyiv", name: "Kyiv", x: 75.2, y: 35.9, labelDx: 0.95, labelDy: -0.85 },
+  { id: "kharkov", name: "Kharkov", x: 88.4, y: 39.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "rostov", name: "Rostov", x: 93.5, y: 49.5, labelDx: -0.55, labelDy: -0.85, labelAnchor: "end" },
+  { id: "sevastopol", name: "Sevastopol", x: 80.8, y: 52.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "sochi", name: "Sochi", x: 94.0, y: 59.4, labelDx: -0.55, labelDy: -0.85, labelAnchor: "end" },
+  { id: "erzurum", name: "Erzurum", x: 91.0, y: 67.0, labelDx: -0.55, labelDy: -0.85, labelAnchor: "end" },
+  { id: "angora", name: "Angora", x: 82.1, y: 67.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "constantinople", name: "Constantinople", x: 74.7, y: 62.1, labelDx: 0.95, labelDy: -0.85 },
+  { id: "smyrna", name: "Smyrna", x: 69.4, y: 68.2, labelDx: 0.95, labelDy: -0.85 },
+  { id: "athens", name: "Athina", x: 64.3, y: 64.3, labelDx: 0.95, labelDy: -0.85 },
+  { id: "sofia", name: "Sofia", x: 67.3, y: 56.1, labelDx: 0.95, labelDy: -0.85 },
+  { id: "bucharest", name: "București", x: 75.4, y: 50.1, labelDx: 0.95, labelDy: -0.85 },
+  { id: "budapest", name: "Budapest", x: 60.0, y: 44.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "vienna", name: "Wien", x: 53.7, y: 40.5, labelDx: 0.95, labelDy: -0.85 },
+  { id: "munich", name: "München", x: 43.6, y: 37.7, labelDx: 0.95, labelDy: -0.85 },
+  { id: "venezia", name: "Venezia", x: 46.7, y: 50.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "zagreb", name: "Zagrab", x: 53.1, y: 51.9, labelDx: 0.95, labelDy: -0.85 },
+  { id: "sarajevo", name: "Sarajevo", x: 57.2, y: 56.1, labelDx: 0.95, labelDy: -0.85 },
+  { id: "roma", name: "Roma", x: 40.2, y: 58.4, labelDx: 0.95, labelDy: -0.85 },
+  { id: "brindisi", name: "Brindisi", x: 53.3, y: 64.0, labelDx: 0.95, labelDy: -0.85 },
+  { id: "palermo", name: "Palermo", x: 44.7, y: 70.2, labelDx: 0.95, labelDy: -0.85 },
 ];
-
 const ROUTE_DEFS: Omit<Route, "points">[] = [
   { id: "edinburgh-london", from: "edinburgh", to: "london", color: "black", length: 4 },
   { id: "london-amsterdam", from: "london", to: "amsterdam", color: "gray", length: 2, offset: -0.55 },
@@ -428,17 +464,27 @@ function emptyHand(): Record<CardColor, number> {
 }
 
 function shuffle<T>(items: T[]): T[] {
-  return [...items].sort(() => Math.random() - 0.5);
+  const copy = [...items];
+
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+
+  return copy;
 }
 
 function makeDeck(): CardColor[] {
   const deck: CardColor[] = [];
+
   CARD_COLORS.forEach((color) => {
     const amount = color === "wild" ? 14 : 12;
+
     for (let i = 0; i < amount; i += 1) {
       deck.push(color);
     }
   });
+
   return shuffle(deck);
 }
 
@@ -452,20 +498,104 @@ function cityName(id: CityId): string {
   return CITIES.find((city) => city.id === id)?.name ?? id;
 }
 
+function ticketId(ticket: Ticket): string {
+  return ticket.id ?? `${ticket.from}-${ticket.to}-${ticket.points}`;
+}
+
+function withTicketMeta(ticket: Ticket, type: "long" | "short"): Ticket {
+  return {
+    ...ticket,
+    id: `${type}-${ticket.from}-${ticket.to}-${ticket.points}`,
+    type,
+  };
+}
+
+function readLobbySnapshot(): BoardLobbySnapshot | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_LOBBY_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as BoardLobbySnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function getPlayerDisplayName(player: LobbySnapshotPlayer, index: number): string {
+  return player.username ?? player.name ?? player.email ?? `Player ${index + 1}`;
+}
+
+function buildRawPlayersFromLobby(): Array<{
+  id: string;
+  name: string;
+  avatar: string;
+  color: PlayerColor;
+  isHuman: boolean;
+}> {
+  const snapshot = readLobbySnapshot();
+
+  const fallbackPlayers = [
+    { id: "p1", name: "You", avatar: "🚂", color: "red" as PlayerColor, isHuman: true },
+    { id: "p2", name: "Opponent", avatar: "🧑‍💻", color: "blue" as PlayerColor, isHuman: false },
+  ];
+
+  if (!snapshot?.players?.length) return fallbackPlayers;
+
+  const lobbyPlayers = [...snapshot.players].slice(0, 5);
+  const currentIndex = lobbyPlayers.findIndex((player) => {
+    const id = player.id ?? player.user_id;
+
+    return (
+      String(id) === String(snapshot.currentUserId) ||
+      getPlayerDisplayName(player, 0) === snapshot.currentUsername
+    );
+  });
+
+  if (currentIndex > 0) {
+    const [currentPlayer] = lobbyPlayers.splice(currentIndex, 1);
+    lobbyPlayers.unshift(currentPlayer);
+  }
+
+  return lobbyPlayers.map((player, index) => ({
+    id: String(player.id ?? player.user_id ?? `p${index + 1}`),
+    name: getPlayerDisplayName(player, index),
+    avatar: player.avatar ?? player.avatar_url ?? player.image ?? PLAYER_AVATARS[index] ?? "🚂",
+    color: PLAYER_COLOR_ORDER[index] ?? "red",
+    isHuman: index === 0,
+  }));
+}
+
+function drawStartingTicketOffer(): StartingTicketOffer {
+  const longTickets = shuffle(INITIAL_TICKETS.filter((ticket) => ticket.points >= 17)).map((ticket) =>
+    withTicketMeta(ticket, "long"),
+  );
+
+  const shortTickets = shuffle(INITIAL_TICKETS.filter((ticket) => ticket.points < 17)).map((ticket) =>
+    withTicketMeta(ticket, "short"),
+  );
+
+  const longTicket = longTickets[0] ?? withTicketMeta(shuffle(INITIAL_TICKETS)[0], "long");
+  const offeredShortTickets = shortTickets.slice(0, 3);
+
+  return {
+    longTicket,
+    shortTickets: offeredShortTickets,
+    allTickets: [longTicket, ...offeredShortTickets],
+  };
+}
+
+function autoChooseStartingTickets(): Ticket[] {
+  const offer = drawStartingTicketOffer();
+  return [offer.longTicket, offer.shortTickets[0]].filter(Boolean);
+}
+
 function createPlayers(
   deckStart: CardColor[],
   ticketDeckStart: Ticket[],
-): { players: Player[]; deck: CardColor[]; ticketDeck: Ticket[] } {
+): { players: Player[]; deck: CardColor[]; ticketDeck: Ticket[]; humanTicketOffer: StartingTicketOffer } {
   let deck = [...deckStart];
-  let ticketDeck = [...ticketDeckStart];
-
-  const rawPlayers = [
-    { id: "p1", name: "Хлеп", avatar: "🐱", color: "red" as PlayerColor, isHuman: true },
-    { id: "p2", name: "ratushnyi", avatar: "🧑‍💻", color: "blue" as PlayerColor, isHuman: false },
-    { id: "p3", name: "goodcoach87", avatar: "🚴", color: "green" as PlayerColor, isHuman: false },
-    { id: "p4", name: "Zemel9", avatar: "🦉", color: "yellow" as PlayerColor, isHuman: false },
-    { id: "p5", name: "Булат", avatar: "😎", color: "black" as PlayerColor, isHuman: false },
-  ];
+  const ticketDeck = [...ticketDeckStart];
+  const rawPlayers = buildRawPlayersFromLobby();
+  const humanTicketOffer = drawStartingTicketOffer();
 
   const players: Player[] = rawPlayers.map((player) => {
     const hand = emptyHand();
@@ -476,35 +606,36 @@ function createPlayers(
       if (next.card) hand[next.card] += 1;
     }
 
-    const startingTickets = ticketDeck.slice(0, 4);
-    ticketDeck = ticketDeck.slice(4);
-
     return {
       ...player,
       colorHex: PLAYER_COLORS[player.color],
       score: 0,
       trains: 35,
       hand,
-      tickets: startingTickets.slice(0, 2),
+      tickets: player.isHuman ? [] : autoChooseStartingTickets(),
+      hasSelectedStartingTickets: !player.isHuman,
     };
   });
 
-  return { players, deck, ticketDeck };
+  return { players, deck, ticketDeck, humanTicketOffer };
 }
 
 function replaceMarketIfTooManyLocos(deckInput: CardColor[], marketInput: CardColor[]): { deck: CardColor[]; market: CardColor[] } {
   const locomotives = marketInput.filter((card) => card === "wild").length;
+
   if (locomotives < 3 || deckInput.length < 5) {
     return { deck: deckInput, market: marketInput };
   }
 
   let deck = [...deckInput];
   const market: CardColor[] = [];
+
   while (market.length < 5 && deck.length > 0) {
     const next = drawOne(deck);
     deck = next.deck;
     if (next.card) market.push(next.card);
   }
+
   return { deck, market };
 }
 
@@ -521,78 +652,80 @@ function refillMarket(deckInput: CardColor[], marketInput: CardColor[]): { deck:
   return replaceMarketIfTooManyLocos(deck, market);
 }
 
+function getClaimColor(route: Route, selectedColor: CardColor): CardColor {
+  if (route.color !== "gray") return route.color;
+  return selectedColor;
+}
+
 function canClaimRoute(player: Player, route: Route, selectedColor: CardColor): boolean {
   if (route.ownerId) return false;
   if (player.trains < route.length) return false;
 
   const requiredLocos = route.type === "ferry" ? route.ferryLocos ?? 1 : 0;
+  const color = getClaimColor(route, selectedColor);
+
   if (player.hand.wild < requiredLocos) return false;
 
-  if (selectedColor === "wild") {
+  if (color === "wild") {
     return player.hand.wild >= route.length;
   }
 
-  if (route.color !== "gray" && route.color !== selectedColor) {
-    return false;
+  const nonLocoLength = route.length - requiredLocos;
+  const spareLocos = player.hand.wild - requiredLocos;
+  return player.hand[color] + spareLocos >= nonLocoLength;
+}
+
+function spendCards(
+  hand: Record<CardColor, number>,
+  selectedColor: CardColor,
+  routeLength: number,
+  requiredLocos: number,
+): Record<CardColor, number> {
+  const next = { ...hand };
+
+  if (selectedColor === "wild") {
+    next.wild -= routeLength;
+    return next;
   }
 
-  return player.hand[selectedColor] + player.hand.wild >= route.length;
+  const colorCardsToSpend = Math.min(next[selectedColor], routeLength - requiredLocos);
+  next[selectedColor] -= colorCardsToSpend;
+  next.wild -= requiredLocos + (routeLength - requiredLocos - colorCardsToSpend);
+
+  return next;
 }
 
-function spendCards(hand: Record<CardColor, number>, color: CardColor, amount: number, requiredLocos = 0): Record<CardColor, number> {
-  const newHand = { ...hand };
-  const mandatoryLocos = Math.min(requiredLocos, newHand.wild);
-  newHand.wild -= mandatoryLocos;
-
-  const remainingAmount = amount - mandatoryLocos;
-  const colorUsed = color === "wild" ? 0 : Math.min(newHand[color], remainingAmount);
-  const extraWildUsed = remainingAmount - colorUsed;
-
-  if (color !== "wild") {
-    newHand[color] -= colorUsed;
-  }
-
-  newHand.wild -= extraWildUsed;
-  return newHand;
+function handCount(hand: Record<CardColor, number>): number {
+  return Object.values(hand).reduce((sum, value) => sum + value, 0);
 }
 
-function spentCardsPreview(hand: Record<CardColor, number>, color: CardColor, route: Route): string {
-  const requiredLocos = route.type === "ferry" ? route.ferryLocos ?? 1 : 0;
-  if (color === "wild") return `${route.length} locomotives`;
-
-  const regularNeeded = route.length - requiredLocos;
-  const regularUsed = Math.min(hand[color], regularNeeded);
-  const extraWild = regularNeeded - regularUsed;
-
-  const parts: string[] = [];
-  if (regularUsed > 0) parts.push(`${regularUsed} ${CARD_META[color].label}`);
-  if (requiredLocos > 0) parts.push(`${requiredLocos} required locomotive${requiredLocos > 1 ? "s" : ""}`);
-  if (extraWild > 0) parts.push(`${extraWild} extra locomotive${extraWild > 1 ? "s" : ""}`);
-
-  return parts.join(" + ");
-}
-
-function hasPath(playerId: string, from: CityId, to: CityId, routes: Route[]): boolean {
+function hasConnection(player: Player, routes: Route[], from: CityId, to: CityId): boolean {
   const graph = new Map<CityId, CityId[]>();
 
   routes
-    .filter((route) => route.ownerId === playerId)
+    .filter((route) => route.ownerId === player.id)
     .forEach((route) => {
-      graph.set(route.from, [...(graph.get(route.from) ?? []), route.to]);
-      graph.set(route.to, [...(graph.get(route.to) ?? []), route.from]);
+      const fromNeighbours = graph.get(route.from) ?? [];
+      fromNeighbours.push(route.to);
+      graph.set(route.from, fromNeighbours);
+
+      const toNeighbours = graph.get(route.to) ?? [];
+      toNeighbours.push(route.from);
+      graph.set(route.to, toNeighbours);
     });
 
-  const queue: CityId[] = [from];
   const visited = new Set<CityId>();
+  const stack: CityId[] = [from];
 
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current) break;
+  while (stack.length) {
+    const current = stack.pop()!;
     if (current === to) return true;
+    if (visited.has(current)) continue;
 
     visited.add(current);
-    (graph.get(current) ?? []).forEach((next) => {
-      if (!visited.has(next)) queue.push(next);
+    const neighbours = graph.get(current) ?? [];
+    neighbours.forEach((city) => {
+      if (!visited.has(city)) stack.push(city);
     });
   }
 
@@ -601,264 +734,19 @@ function hasPath(playerId: string, from: CityId, to: CityId, routes: Route[]): b
 
 function completedTickets(player: Player, routes: Route[]): number {
   return player.tickets.reduce((sum, ticket) => {
-    return hasPath(player.id, ticket.from, ticket.to, routes) ? sum + ticket.points : sum;
+    return sum + (hasConnection(player, routes, ticket.from, ticket.to) ? ticket.points : -ticket.points);
   }, 0);
 }
 
-function handCount(hand: Record<CardColor, number>): number {
-  return CARD_COLORS.reduce((sum, color) => sum + hand[color], 0);
-}
-
-function BoardBackground() {
-  const topNums = Array.from({ length: 35 }, (_, i) => i + 1);
-  const bottomNums = Array.from({ length: 35 }, (_, i) => 70 - i);
-
-  return (
-    <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 70" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="seaGradient" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#cfe6f2" />
-          <stop offset="45%" stopColor="#bdd9e8" />
-          <stop offset="100%" stopColor="#a9cadc" />
-        </linearGradient>
-        <linearGradient id="landGradient" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#f4ead1" />
-          <stop offset="58%" stopColor="#e2cfaa" />
-          <stop offset="100%" stopColor="#c7aa7a" />
-        </linearGradient>
-        <filter id="landShadow" x="-15%" y="-15%" width="130%" height="130%">
-          <feDropShadow dx="0" dy="0.42" stdDeviation="0.38" floodColor="#5f4a32" floodOpacity="0.28" />
-        </filter>
-        <filter id="labelGlow" x="-30%" y="-30%" width="160%" height="160%">
-          <feDropShadow dx="0" dy="0.12" stdDeviation="0.18" floodColor="#ffffff" floodOpacity="0.8" />
-        </filter>
-      </defs>
-
-      <rect x="0" y="0" width="100" height="70" fill="url(#seaGradient)" />
-
-      <g opacity="0.18" stroke="#ffffff" strokeWidth="0.16" fill="none">
-        <path d="M5 13 C 11 11, 18 12, 26 10" />
-        <path d="M65 13 C 75 11, 86 13, 96 11" />
-        <path d="M6 32 C 13 30, 20 31, 28 30" />
-        <path d="M5 58 C 18 56, 31 58, 43 56" />
-        <path d="M58 61 C 71 59, 84 61, 96 59" />
-      </g>
-
-      <g filter="url(#landShadow)">
-        {/* Great Britain and Ireland area */}
-        <path
-          d="M5.4 8.4 L12.2 5.6 L19.4 5.9 L24.8 8.1 L30.1 10.9 L31.8 17.1 L31.1 24.8 L28.2 31.0 L23.1 33.2 L17.5 31.6 L12.9 27.9 L10.1 21.3 L5.4 16.3 Z"
-          fill="url(#landGradient)"
-          stroke="#9f8255"
-          strokeWidth="0.25"
-        />
-
-        {/* Mainland Europe: one connected shape, with Brittany, France, Iberia, Central/Eastern Europe and Balkans */}
-        <path
-          d="M12.2 34.4
-             L15.2 29.2 L22.3 27.8 L30.6 27.2 L38.9 28.2 L46.7 31.0
-             L52.5 35.2 L59.0 34.1 L68.4 35.9 L76.6 40.2 L81.7 46.7
-             L83.9 53.2 L80.6 59.4 L73.6 64.0 L63.0 64.3 L53.3 61.0
-             L45.9 53.0 L40.2 56.6 L32.0 59.2 L24.0 62.2 L16.2 59.3
-             L12.5 51.0 L11.5 42.1 Z"
-          fill="url(#landGradient)"
-          stroke="#9f8255"
-          strokeWidth="0.27"
-        />
-
-        {/* Scandinavia and North-East mainland, connected visually to Europe through Denmark/Baltic area */}
-        <path
-          d="M40.2 7.1 L55.8 4.6 L69.3 5.9 L83.9 9.2 L91.1 14.8
-             L95.3 22.9 L94.1 32.0 L89.3 38.7 L81.4 42.0 L72.6 41.2
-             L64.2 38.5 L55.6 33.0 L48.7 28.0 L43.5 23.0 Z"
-          fill="url(#landGradient)"
-          stroke="#9f8255"
-          strokeWidth="0.25"
-        />
-
-        {/* Denmark / northern Germany bridge */}
-        <path
-          d="M40.3 22.4 L46.4 22.9 L49.6 27.5 L47.1 31.2 L41.8 29.1 Z"
-          fill="url(#landGradient)"
-          stroke="#9f8255"
-          strokeWidth="0.22"
-        />
-
-        {/* Anatolia / Caucasus area */}
-        <path
-          d="M72.3 47.7 L82.8 46.0 L94.6 49.1 L98.0 55.4 L98.0 63.7
-             L93.7 67.2 L83.5 67.4 L74.9 63.5 L70.9 57.4 Z"
-          fill="url(#landGradient)"
-          stroke="#9f8255"
-          strokeWidth="0.25"
-        />
-
-        {/* Italy boot, connected but shaped more naturally */}
-        <path
-          d="M34.0 56.3 L39.5 55.0 L43.7 58.2 L45.4 62.8 L44.2 67.0
-             L38.6 68.1 L33.3 65.0 L32.5 60.2 Z"
-          fill="url(#landGradient)"
-          stroke="#9f8255"
-          strokeWidth="0.25"
-        />
-
-        {/* Portugal / south-west edge */}
-        <path
-          d="M2.2 54.3 L7.3 53.5 L10.3 58.2 L10.2 65.2 L6.4 67.3
-             L2.1 65.1 L1.4 58.4 Z"
-          fill="url(#landGradient)"
-          stroke="#9f8255"
-          strokeWidth="0.25"
-        />
-      </g>
-
-      {/* Inner region lines for an old-map feeling */}
-      <g opacity="0.24" stroke="#9f8255" strokeWidth="0.18" fill="none">
-        <path d="M14 40 L25 38 L36 40 L46 44" />
-        <path d="M30 28 L33 37 L32 47 L28 56" />
-        <path d="M48 36 L57 46 L62 57" />
-        <path d="M62 36 L71 43 L76 53" />
-        <path d="M73 48 L82 47 L94 51" />
-        <path d="M44 23 L52 20 L62 18 L72 18 L86 20" />
-        <path d="M52 35 L59 34 L69 36" />
-      </g>
-
-      {/* A few coast/sea strokes */}
-      <g opacity="0.18" stroke="#6f9fb8" strokeWidth="0.18" fill="none">
-        <path d="M7 13 C 14 11, 20 13, 28 11" />
-        <path d="M68 14 C 77 12, 87 14, 96 12" />
-        <path d="M40 66 C 49 64, 57 65, 66 64" />
-        <path d="M74 60 C 83 59, 91 60, 97 58" />
-      </g>
-
-      {/* Board frame */}
-      <rect x="0.8" y="0.8" width="98.4" height="68.4" rx="2.8" fill="none" stroke="#d9c7a5" strokeWidth="1.2" />
-      <rect x="1.8" y="1.8" width="96.4" height="66.4" rx="2.2" fill="none" stroke="#edf5fb" strokeWidth="0.55" />
-      <rect x="2.4" y="2.4" width="95.2" height="65.2" rx="2" fill="none" stroke="#7da0ba" strokeWidth="0.2" opacity="0.6" />
-
-      {topNums.map((n, i) => {
-        const x = 2.2 + i * 2.75;
-        return (
-          <g key={`top-${n}`}>
-            <circle cx={x} cy={2.1} r="1.08" fill="#15739a" stroke="#d9c7a5" strokeWidth="0.25" />
-            <text x={x} y={2.45} textAnchor="middle" fontSize="0.72" fontWeight="900" fill="#ffffff">
-              {n}
-            </text>
-          </g>
-        );
-      })}
-
-      {bottomNums.map((n, i) => {
-        const x = 2.2 + i * 2.75;
-        return (
-          <g key={`bottom-${n}`}>
-            <circle cx={x} cy={67.9} r="1.08" fill="#15739a" stroke="#d9c7a5" strokeWidth="0.25" />
-            <text x={x} y={68.25} textAnchor="middle" fontSize="0.72" fontWeight="900" fill="#ffffff">
-              {n}
-            </text>
-          </g>
-        );
-      })}
-
-      <g opacity="0.58">
-        <rect x="10" y="9" width="14" height="7" rx="0.8" fill="rgba(255,255,255,0.23)" stroke="rgba(99,82,58,0.35)" strokeWidth="0.18" />
-        <text x="11" y="11.2" fontSize="0.82" fontWeight="900" fill="#334155">
-          Route scoring
-        </text>
-        <text x="11" y="13" fontSize="0.65" fontWeight="700" fill="#475569">
-          1 2 3 4 5 6 7 8
-        </text>
-        <text x="11" y="14.4" fontSize="0.65" fontWeight="700" fill="#475569">
-          1 2 4 7 10 15 18 21
-        </text>
-      </g>
-    </svg>
-  );
-}
-
-function RouteSlot({
-  x,
-  y,
-  angle,
-  fill,
-  stroke,
-  claimed,
-  type,
-  isRequiredLoco,
-}: {
-  x: number;
-  y: number;
-  angle: number;
-  fill: string;
-  stroke: string;
-  claimed: boolean;
-  type?: RouteType;
-  isRequiredLoco?: boolean;
-}) {
-  return (
-    <g transform={`translate(${x} ${y}) rotate(${angle})`}>
-      {type === "tunnel" && !claimed && (
-        <rect x="-1.7" y="-0.76" width="3.4" height="1.52" rx="0.36" fill="#475569" opacity="0.45" />
-      )}
-      <rect
-        x="-1.45"
-        y="-0.54"
-        width="2.9"
-        height="1.08"
-        rx="0.28"
-        fill={isRequiredLoco && !claimed ? "#8b5cf6" : fill}
-        stroke={stroke}
-        strokeWidth="0.18"
-        opacity={claimed ? 0.98 : 0.96}
-      />
-      {isRequiredLoco && !claimed && (
-        <text x="0" y="0.32" textAnchor="middle" fontSize="0.72" fontWeight="900" fill="#ffffff">
-          ★
-        </text>
-      )}
-      {claimed && (
-        <>
-          <rect x="-0.62" y="-0.2" width="0.86" height="0.4" rx="0.1" fill="rgba(255,255,255,0.22)" />
-          <circle cx="-0.72" cy="0.46" r="0.12" fill="#111827" />
-          <circle cx="0.72" cy="0.46" r="0.12" fill="#111827" />
-        </>
-      )}
-    </g>
-  );
-}
-
-function CityNode({ city, active }: { city: City; active: boolean }) {
-  const dx = city.labelDx ?? 1.1;
-  const dy = city.labelDy ?? -0.8;
-
-  return (
-    <g className="pointer-events-none">
-      {active && <circle cx={city.x} cy={city.y} r="2.05" fill="rgba(255,255,255,0.55)" />}
-      <circle cx={city.x} cy={city.y} r="1.28" fill="#f59e0b" stroke="#92400e" strokeWidth="0.34" />
-      <circle cx={city.x} cy={city.y} r="0.53" fill="#fff7ed" stroke="rgba(146,64,14,0.45)" strokeWidth="0.1" />
-      <text
-        x={city.x + dx}
-        y={city.y + dy}
-        fontSize={active ? "1.1" : "0.95"}
-        fontWeight="900"
-        fill="#0f172a"
-        stroke="rgba(255,255,255,0.98)"
-        strokeWidth={active ? "0.45" : "0.36"}
-        paintOrder="stroke"
-        letterSpacing="0.01em"
-      >
-        {city.name}
-      </text>
-    </g>
-  );
-}
-
-function getOffsetRoutePoints(from: City, to: City, offset = 0) {
+function routeGeometry(route: Route, cityById: Map<CityId, City>) {
+  const from = cityById.get(route.from)!;
+  const to = cityById.get(route.to)!;
   const dx = to.x - from.x;
   const dy = to.y - from.y;
-  const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-  const normalX = (-dy / distance) * offset;
-  const normalY = (dx / distance) * offset;
+  const length = Math.sqrt(dx * dx + dy * dy) || 1;
+  const offset = route.offset ?? 0;
+  const normalX = (-dy / length) * offset;
+  const normalY = (dx / length) * offset;
 
   return {
     x1: from.x + normalX,
@@ -869,6 +757,283 @@ function getOffsetRoutePoints(from: City, to: City, offset = 0) {
     dy,
     angle: (Math.atan2(dy, dx) * 180) / Math.PI,
   };
+}
+
+function ScoreMarker({ x, y, value }: { x: number; y: number; value: number }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <circle r="1.28" fill="#082f49" stroke="#e7c873" strokeWidth="0.34" filter="url(#softShadow)" />
+      <circle r="0.98" fill="#0e7490" stroke="#053447" strokeWidth="0.2" />
+      <text
+        x="0"
+        y="0.35"
+        textAnchor="middle"
+        fontSize="1.05"
+        fontWeight="900"
+        fontFamily="Georgia, serif"
+        fill="#fff7d6"
+      >
+        {value}
+      </text>
+    </g>
+  );
+}
+
+function BoardScoreTrack() {
+  const top = Array.from({ length: 31 }, (_, index) => ({ value: index, x: 4.4 + index * 3.05, y: 2.05 }));
+  const right = Array.from({ length: 19 }, (_, index) => ({ value: 31 + index, x: 97.75, y: 5.4 + index * 3.45 }));
+  const bottom = Array.from({ length: 31 }, (_, index) => ({ value: 80 - index, x: 4.4 + index * 3.05, y: 72.95 }));
+  const left = Array.from({ length: 19 }, (_, index) => ({ value: 99 - index, x: 2.25, y: 5.4 + index * 3.45 }));
+
+  return (
+    <g pointerEvents="none">
+      <rect x="0.65" y="0.65" width="98.7" height="73.7" rx="2.6" fill="none" stroke="#6b4e26" strokeWidth="1.3" />
+      <rect x="1.45" y="1.45" width="97.1" height="72.1" rx="2.0" fill="none" stroke="#d9b56d" strokeWidth="0.55" />
+      <path
+        d="M2.7 3.8 C8 1.7 14 1.7 19.5 3.8 M80.5 3.8 C86 1.7 92 1.7 97.3 3.8 M2.7 71.2 C8 73.3 14 73.3 19.5 71.2 M80.5 71.2 C86 73.3 92 73.3 97.3 71.2"
+        fill="none"
+        stroke="#7c5f2d"
+        strokeWidth="0.45"
+        opacity="0.65"
+      />
+      {[...top, ...right, ...bottom, ...left].map((marker) => (
+        <ScoreMarker key={`${marker.value}-${marker.x}-${marker.y}`} {...marker} />
+      ))}
+    </g>
+  );
+}
+
+function DecorativeMapBackground() {
+  return (
+    <g pointerEvents="none">
+      <rect x="0" y="0" width="100" height="75" fill="url(#water)" />
+      <rect x="0" y="0" width="100" height="75" fill="url(#paperNoise)" opacity="0.22" />
+
+      <path
+        d="M4.5 36 C5.5 31 9 28 12.7 27.3 C15.2 25.4 17.2 23.5 20.1 21.5 C24.8 18.1 29.3 17.1 33.9 18.2 C38.5 16.2 45.1 17.5 49.8 20.0 C55.1 18.4 61.2 18.8 66.9 21.4 C72.6 18.4 80.3 18.0 87.1 21.5 C94.0 25.0 97.1 32.9 95.0 41.7 C96.6 47.3 95.1 53.6 90.2 57.9 C85.6 62.0 76.7 62.3 70.8 60.4 C66.0 64.6 58.1 65.0 52.6 61.6 C47.3 64.0 39.9 63.5 34.9 59.8 C29.2 61.4 22.1 60.1 17.8 56.0 C12.0 56.7 6.8 53.6 4.6 48.5 C2.9 44.8 2.5 39.5 4.5 36 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.55"
+      />
+      <path
+        d="M3.1 58.2 C6.8 55.3 12.4 55.1 16.4 58.4 C19.7 61.2 20.8 66.5 17.2 70.4 C12.9 72.8 6.5 71.2 3.7 67.6 C1.4 64.6 1.0 60.5 3.1 58.2 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.55"
+      />
+      <path
+        d="M6.6 4.8 C11.2 4.1 15.0 7.6 14.5 12.4 C13.6 18.1 17.0 22.2 13.0 26.1 C9.2 28.0 4.8 25.0 4.1 20.3 C3.3 14.8 1.2 7.2 6.6 4.8 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.52"
+      />
+      <path
+        d="M1.9 10.8 C4.5 9.6 6.5 11.7 6.2 14.6 C5.8 18.7 7.0 21.8 4.2 24.1 C1.7 23.7 0.8 20.4 1.0 17.1 C1.1 14.5 0.6 12.0 1.9 10.8 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.45"
+      />
+      <path
+        d="M45.0 3.4 C49.3 0.6 55.7 1.0 59.7 4.9 C62.6 7.8 60.0 11.7 55.9 12.1 C52.1 12.5 47.4 10.8 44.9 8.2 C43.5 6.8 43.5 4.7 45.0 3.4 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.48"
+      />
+      <path
+        d="M41.0 55.5 C45.3 56.6 49.2 59.6 50.3 64.5 C48.2 67.2 44.2 66.3 42.0 63.6 C39.9 61.0 38.9 57.3 41.0 55.5 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.45"
+      />
+      <path
+        d="M44.3 69.1 C47.8 67.6 52.3 68.5 54.6 71.4 C51.2 73.0 46.6 72.7 44.3 69.1 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.38"
+      />
+      <path
+        d="M69.3 59.0 C76.1 57.6 84.2 58.5 91.7 61.1 C96.5 62.8 97.7 68.2 94.5 71.7 C88.4 72.3 80.7 69.7 73.2 68.9 C69.5 68.5 66.7 62.3 69.3 59.0 Z"
+        fill="url(#land)"
+        stroke="#8c6239"
+        strokeWidth="0.5"
+      />
+
+      <path d="M28.5 38 C31 34 35 33 38.2 35.2 C35.0 36.0 32.2 38.3 30.2 41.8 Z" fill="#7c6748" opacity="0.42" />
+      <path d="M50.0 42 C52.5 37.5 56.8 36.2 60.8 38.4 C57.2 39.3 54.6 42.3 52.0 46.1 Z" fill="#7c6748" opacity="0.38" />
+      <path d="M71.0 42 C75.2 39.0 80.3 40.0 83.4 44.1 C78.9 43.6 75.2 45.0 72.8 48.3 Z" fill="#7c6748" opacity="0.33" />
+      <path d="M31.4 37.0 L32.4 34.9 L33.4 37.0 L34.6 34.6 L35.7 37.0 L36.8 34.8 L37.9 37.0" fill="none" stroke="#4b3b2a" strokeWidth="0.35" opacity="0.55" />
+      <path d="M53.3 41.2 L54.4 38.9 L55.6 41.2 L56.8 38.8 L58.0 41.2" fill="none" stroke="#4b3b2a" strokeWidth="0.35" opacity="0.5" />
+
+      <text x="10" y="44" fontSize="3.2" fill="#1e5d75" opacity="0.28" fontFamily="Georgia, serif">⚓</text>
+      <text x="31" y="14" fontSize="3.4" fill="#6b4423" opacity="0.22" fontFamily="Georgia, serif">✈</text>
+      <text x="53" y="70" fontSize="3.2" fill="#1e5d75" opacity="0.26" fontFamily="Georgia, serif">⛵</text>
+      <text x="82" y="46" fontSize="3.3" fill="#1e5d75" opacity="0.26" fontFamily="Georgia, serif">⚓</text>
+      <text x="75" y="17" fontSize="3.0" fill="#6b4423" opacity="0.18" fontFamily="Georgia, serif">♜</text>
+      <text x="24" y="44" fontSize="3.0" fill="#6b4423" opacity="0.18" fontFamily="Georgia, serif">♜</text>
+
+      <g transform="translate(6 9)" opacity="0.78">
+        <rect x="0" y="0" width="13" height="8" rx="0.8" fill="#efe3c2" stroke="#8c6239" strokeWidth="0.35" />
+        {[1, 2, 3, 4, 5, 6].map((value, index) => (
+          <g key={value} transform={`translate(1 ${1 + index * 1.08})`}>
+            <text x="0" y="0.45" fontSize="0.72" fontWeight="900" fill="#5b3920">{value}</text>
+            <rect x="2" y="-0.3" width={2.0 + index * 0.55} height="0.5" rx="0.15" fill="#60666e" />
+            <text x="11.4" y="0.45" textAnchor="end" fontSize="0.72" fontWeight="900" fill="#8a1c1c">
+              {[1, 2, 4, 7, 10, 15][index]}
+            </text>
+          </g>
+        ))}
+      </g>
+    </g>
+  );
+}
+
+function StartingTicketSelectionScreen({
+  offer,
+  selectedTicketIds,
+  onToggleTicket,
+  onConfirm,
+}: {
+  offer: StartingTicketOffer;
+  selectedTicketIds: string[];
+  onToggleTicket: (ticket: Ticket) => void;
+  onConfirm: () => void;
+}) {
+  const selectedShortCount = selectedTicketIds.filter((id) =>
+    offer.shortTickets.some((ticket) => ticketId(ticket) === id),
+  ).length;
+
+  const selectedTotal = offer.allTickets.filter((ticket) => selectedTicketIds.includes(ticketId(ticket))).length;
+  const canConfirm = selectedShortCount >= 1;
+
+  const renderTicket = (ticket: Ticket, locked = false) => {
+    const selected = selectedTicketIds.includes(ticketId(ticket));
+
+    return (
+      <button
+        key={ticketId(ticket)}
+        type="button"
+        disabled={locked}
+        onClick={() => onToggleTicket(ticket)}
+        className={`rounded-3xl border-2 p-5 text-left shadow-xl transition ${
+          selected
+            ? "border-emerald-400 bg-emerald-500/15 shadow-emerald-950/30"
+            : "border-white/10 bg-slate-950/75 hover:border-white/25"
+        } ${locked ? "cursor-not-allowed opacity-90" : "hover:-translate-y-0.5"}`}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">
+              {ticket.type === "long" ? "Long route" : "Short route"}
+            </p>
+            <h3 className="text-xl font-black text-white">
+              {cityName(ticket.from)} → {cityName(ticket.to)}
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Keep this ticket hidden. If completed, you gain points. If failed, you lose them.
+            </p>
+          </div>
+
+          <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-white text-xl font-black text-slate-950">
+            {ticket.points}
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center justify-between">
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-black ${
+              ticket.type === "long" ? "bg-purple-400/20 text-purple-200" : "bg-blue-400/20 text-blue-200"
+            }`}
+          >
+            {ticket.type === "long" ? "Required" : "Choose / discard"}
+          </span>
+
+          <span
+            className={`grid h-8 w-8 place-items-center rounded-full border text-sm font-black ${
+              selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/20 text-white/30"
+            }`}
+          >
+            ✓
+          </span>
+        </div>
+      </button>
+    );
+  };
+
+  return (
+    <main className="min-h-screen bg-[#20262b] p-5 text-slate-50">
+      <div className="mx-auto max-w-6xl rounded-[2rem] border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-black/40">
+        <div className="flex flex-col gap-4 border-b border-white/10 pb-6 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-emerald-300">
+              Private setup phase
+            </p>
+            <h1 className="text-3xl font-black">Choose your destination tickets</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+              You got 1 random long route and 3 short routes. Long route stays with you. From short routes
+              you must keep at least 1, or you can keep all. Opponents do not see your choice.
+            </p>
+          </div>
+
+          <div className="rounded-3xl bg-white/10 px-5 py-4 text-center">
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Selected</p>
+            <p className="mt-1 text-3xl font-black text-white">{selectedTotal}/4</p>
+          </div>
+        </div>
+
+        <section className="mt-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-xl font-black">Long route</h2>
+            <span className="rounded-full bg-purple-400/20 px-3 py-1 text-xs font-black text-purple-200">
+              Always kept
+            </span>
+          </div>
+          {renderTicket(offer.longTicket, true)}
+        </section>
+
+        <section className="mt-8">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-xl font-black">Short routes</h2>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-black ${
+                canConfirm ? "bg-emerald-400/20 text-emerald-200" : "bg-red-400/20 text-red-200"
+              }`}
+            >
+              Select at least one
+            </span>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">{offer.shortTickets.map((ticket) => renderTicket(ticket))}</div>
+        </section>
+
+        <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-950/75 p-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="font-black text-white">Hidden information</p>
+            <p className="mt-1 text-sm leading-6 text-slate-400">
+              These tickets are stored only for your player. Other players should not see this panel.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            disabled={!canConfirm}
+            onClick={onConfirm}
+            className="rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 px-6 py-3 font-black text-white shadow-lg shadow-black/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+          >
+            Confirm and start board
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function TrainCard({ card }: { card: CardColor }) {
+  return (
+    <div className={`rounded-2xl bg-gradient-to-br p-3 text-center text-sm font-black shadow-lg ring-2 ${CARD_META[card].className}`}>
+      <div className="text-2xl leading-none">{CARD_META[card].symbol}</div>
+      <div className="mt-1">{CARD_META[card].label}</div>
+    </div>
+  );
 }
 
 export default function GameBoard() {
@@ -889,8 +1054,15 @@ export default function GameBoard() {
   const [log, setLog] = useState<LogItem[]>([
     {
       id: Date.now(),
-      text: "Game started. Each player begins with 35 trains, 4 train cards, and 2 kept destination tickets.",
+      text: "Game started. Choose your hidden destination tickets.",
     },
+  ]);
+
+  const [startingTicketOffer, setStartingTicketOffer] = useState<StartingTicketOffer>(prepared.humanTicketOffer);
+  const [showStartingTicketSelection, setShowStartingTicketSelection] = useState(true);
+  const [selectedStartingTicketIds, setSelectedStartingTicketIds] = useState<string[]>([
+    ticketId(prepared.humanTicketOffer.longTicket),
+    ticketId(prepared.humanTicketOffer.shortTickets[0]),
   ]);
 
   const activePlayer = players[activePlayerIndex];
@@ -905,7 +1077,7 @@ export default function GameBoard() {
   });
 
   function addLog(text: string) {
-    setLog((items) => [{ id: Date.now() + Math.random(), text }, ...items].slice(0, 10));
+    setLog((items) => [{ id: Date.now() + Math.random(), text }, ...items].slice(0, 12));
   }
 
   function nextTurn() {
@@ -923,6 +1095,7 @@ export default function GameBoard() {
 
   function drawBlindCard() {
     if (cardsDrawnThisTurn >= 2) return;
+
     if (deck.length === 0) {
       addLog("Deck is empty.");
       return;
@@ -941,21 +1114,25 @@ export default function GameBoard() {
     if (newDrawCount >= 2) nextTurn();
   }
 
-  function drawMarketCard(card: CardColor, cardIndex: number) {
+  function drawMarketCard(index: number) {
     if (cardsDrawnThisTurn >= 2) return;
 
+    const card = market[index];
+    if (!card) return;
+
     if (card === "wild" && cardsDrawnThisTurn > 0) {
-      addLog("You cannot take a face-up locomotive as your second card.");
+      addLog("You can take a locomotive only as the first card of your turn.");
       return;
     }
 
-    const nextMarket = market.filter((_, index) => index !== cardIndex);
-    const refilled = refillMarket(deck, nextMarket);
+    addCardToActivePlayer(card);
 
+    const remainingMarket = market.filter((_, itemIndex) => itemIndex !== index);
+    const refilled = refillMarket(deck, remainingMarket);
     setDeck(refilled.deck);
     setMarket(refilled.market);
-    addCardToActivePlayer(card);
-    addLog(`${activePlayer.name} drew ${CARD_META[card].label}.`);
+
+    addLog(`${activePlayer.name} took ${CARD_META[card].label} from market.`);
 
     if (card === "wild") {
       nextTurn();
@@ -964,25 +1141,27 @@ export default function GameBoard() {
 
     const newDrawCount = cardsDrawnThisTurn + 1;
     setCardsDrawnThisTurn(newDrawCount);
+
     if (newDrawCount >= 2) nextTurn();
   }
 
   function claimSelectedRoute() {
-    if (cardsDrawnThisTurn > 0) {
-      addLog("You already started drawing train cards this turn.");
-      return;
-    }
-
     if (!selectedRoute) {
       addLog("Select a route first.");
       return;
     }
 
-    if (!currentCanClaim) {
-      addLog("You do not have the full required set of cards for this route.");
+    if (selectedRoute.ownerId) {
+      addLog("This route has already been claimed.");
       return;
     }
 
+    if (!currentCanClaim) {
+      addLog(`${activePlayer.name} does not have enough cards or trains for this route.`);
+      return;
+    }
+
+    const claimColor = getClaimColor(selectedRoute, selectedColor);
     const requiredLocos = selectedRoute.type === "ferry" ? selectedRoute.ferryLocos ?? 1 : 0;
 
     setRoutes((currentRoutes) =>
@@ -996,98 +1175,57 @@ export default function GameBoard() {
               ...player,
               score: player.score + selectedRoute.points,
               trains: player.trains - selectedRoute.length,
-              hand: spendCards(player.hand, selectedColor, selectedRoute.length, requiredLocos),
+              hand: spendCards(player.hand, claimColor, selectedRoute.length, requiredLocos),
             }
           : player,
       ),
     );
 
-    addLog(`${activePlayer.name} claimed ${cityName(selectedRoute.from)} → ${cityName(selectedRoute.to)} for ${selectedRoute.points} points.`);
+    addLog(`${activePlayer.name} claimed ${cityName(selectedRoute.from)} → ${cityName(selectedRoute.to)}.`);
     setSelectedRouteId(null);
     nextTurn();
   }
 
-  function drawDestinationTickets() {
-    if (cardsDrawnThisTurn > 0) {
-      addLog("You already started drawing train cards this turn.");
-      return;
-    }
+  function toggleStartingTicket(ticket: Ticket) {
+    if (ticket.type === "long") return;
 
-    const drawnTickets = ticketDeck.slice(0, 3);
-    if (drawnTickets.length === 0) {
-      addLog("Destination ticket deck is empty.");
-      return;
-    }
+    const id = ticketId(ticket);
 
-    const keptTickets = drawnTickets.slice(0, 1);
-    const returnedTickets = drawnTickets.slice(1);
+    setSelectedStartingTicketIds((current) => {
+      if (current.includes(id)) {
+        return current.filter((ticketIdValue) => ticketIdValue !== id);
+      }
 
-    setTicketDeck([...ticketDeck.slice(3), ...returnedTickets]);
-    setPlayers((currentPlayers) =>
-      currentPlayers.map((player, index) =>
-        index === activePlayerIndex ? { ...player, tickets: [...player.tickets, ...keptTickets] } : player,
-      ),
-    );
-
-    addLog(`${activePlayer.name} drew 3 tickets and kept 1 in this prototype.`);
-    nextTurn();
+      return [...current, id];
+    });
   }
 
-  function botMove() {
-    const player = players[activePlayerIndex];
-    if (player.isHuman) return;
+  function confirmStartingTickets() {
+    const selectedTickets = startingTicketOffer.allTickets.filter((ticket) =>
+      selectedStartingTicketIds.includes(ticketId(ticket)),
+    );
 
-    const possibleRoutes = routes.filter((route) => {
-      const colorOptions = route.color === "gray" ? CLAIM_COLORS : [route.color as CardColor, "wild"];
-      return colorOptions.some((color) => canClaimRoute(player, route, color as CardColor));
-    });
+    const selectedShortCount = selectedTickets.filter((ticket) => ticket.type === "short").length;
 
-    if (possibleRoutes.length > 0) {
-      const route = shuffle(possibleRoutes)[0];
-      const colorOptions = route.color === "gray" ? CLAIM_COLORS : [route.color as CardColor, "wild"];
-      const usableColor = colorOptions.find((color) => canClaimRoute(player, route, color as CardColor)) ?? "wild";
-      const requiredLocos = route.type === "ferry" ? route.ferryLocos ?? 1 : 0;
-
-      setRoutes((currentRoutes) =>
-        currentRoutes.map((item) => (item.id === route.id ? { ...item, ownerId: player.id } : item)),
-      );
-
-      setPlayers((currentPlayers) =>
-        currentPlayers.map((item, index) =>
-          index === activePlayerIndex
-            ? {
-                ...item,
-                score: item.score + route.points,
-                trains: item.trains - route.length,
-                hand: spendCards(item.hand, usableColor as CardColor, route.length, requiredLocos),
-              }
-            : item,
-        ),
-      );
-
-      addLog(`${player.name} claimed ${cityName(route.from)} → ${cityName(route.to)}.`);
-      nextTurn();
+    if (selectedShortCount < 1) {
+      addLog("You must keep at least one short destination ticket.");
       return;
     }
 
-    const next = drawOne(deck);
-    if (!next.card) {
-      addLog(`${player.name} skipped because the deck is empty.`);
-      nextTurn();
-      return;
-    }
-
-    setDeck(next.deck);
     setPlayers((currentPlayers) =>
-      currentPlayers.map((item, index) =>
-        index === activePlayerIndex
-          ? { ...item, hand: { ...item.hand, [next.card as CardColor]: item.hand[next.card as CardColor] + 1 } }
-          : item,
+      currentPlayers.map((player, index) =>
+        index === 0
+          ? {
+              ...player,
+              tickets: selectedTickets,
+              hasSelectedStartingTickets: true,
+            }
+          : player,
       ),
     );
 
-    addLog(`${player.name} drew a train card.`);
-    nextTurn();
+    setShowStartingTicketSelection(false);
+    addLog(`${players[0].name} kept ${selectedTickets.length} hidden destination tickets.`);
   }
 
   function resetGame() {
@@ -1105,7 +1243,24 @@ export default function GameBoard() {
     setSelectedRouteId(null);
     setSelectedColor("red");
     setCardsDrawnThisTurn(0);
-    setLog([{ id: Date.now(), text: "New game started." }]);
+    setStartingTicketOffer(newPrepared.humanTicketOffer);
+    setSelectedStartingTicketIds([
+      ticketId(newPrepared.humanTicketOffer.longTicket),
+      ticketId(newPrepared.humanTicketOffer.shortTickets[0]),
+    ]);
+    setShowStartingTicketSelection(true);
+    setLog([{ id: Date.now(), text: "New game started. Choose your hidden destination tickets." }]);
+  }
+
+  if (showStartingTicketSelection) {
+    return (
+      <StartingTicketSelectionScreen
+        offer={startingTicketOffer}
+        selectedTicketIds={selectedStartingTicketIds}
+        onToggleTicket={toggleStartingTicket}
+        onConfirm={confirmStartingTickets}
+      />
+    );
   }
 
   return (
@@ -1116,7 +1271,7 @@ export default function GameBoard() {
             <div>
               <p className="mb-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/75">Ticket Online</p>
               <h1 className="text-2xl font-black leading-tight">Ticket to Ride Europe</h1>
-              <p className="mt-1 text-xs uppercase tracking-[0.22em] text-white/50">Classic Europe board layout</p>
+              <p className="mt-1 text-xs uppercase tracking-[0.22em] text-white/50">Lobby players + hidden tickets</p>
             </div>
             <button
               type="button"
@@ -1152,244 +1307,305 @@ export default function GameBoard() {
                     </span>
                     <div className="min-w-0">
                       <strong className="block truncate text-base font-black text-slate-50">{player.name}</strong>
-                      <span className="text-sm font-semibold text-slate-400">{player.isHuman ? "You" : "Bot"}</span>
+                      <span className="text-sm font-semibold text-slate-400">{player.isHuman ? "You" : "Opponent"}</span>
                     </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-2 text-sm font-bold text-slate-400">
-                    <span className="col-span-2 text-2xl font-light text-slate-50">${totalScore.toLocaleString()}k</span>
+                    <span className="col-span-2 text-2xl font-light text-slate-50">{totalScore.toLocaleString()} pts</span>
                     <span>{player.trains} trains</span>
                     <span>{handCount(player.hand)} cards</span>
-                    <span className="col-span-2 text-xs text-slate-500">routes {player.score} + tickets {ticketPoints}</span>
+                    <span className="col-span-2 text-xs text-slate-500">
+                      routes {player.score} + tickets {ticketPoints}
+                    </span>
+                    <span className="col-span-2 text-xs text-emerald-300">
+                      {player.isHuman ? `${player.tickets.length} hidden tickets` : "Tickets hidden"}
+                    </span>
                   </div>
                 </button>
               );
             })}
           </div>
+
+          <section className="mt-4 rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Leaderboard</h2>
+            <div className="space-y-2">
+              {rankedPlayers.map((player, index) => (
+                <div key={player.id} className="flex items-center justify-between rounded-2xl bg-white/5 px-3 py-2">
+                  <span className="font-bold">
+                    {index + 1}. {player.name}
+                  </span>
+                  <span className="font-black">{player.score + completedTickets(player, routes)}</span>
+                </div>
+              ))}
+            </div>
+          </section>
         </aside>
 
-        <section className="grid min-w-0 grid-rows-[auto_1fr] gap-4">
-          <header className="flex flex-col justify-between gap-4 rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30 backdrop-blur-xl lg:flex-row lg:items-center">
+        <section className="min-w-0 overflow-hidden rounded-[2rem] border border-white/10 bg-[#d8e5d2] shadow-2xl shadow-black/40">
+          <div className="flex items-center justify-between border-b border-black/10 bg-white/40 px-5 py-4 text-slate-900">
             <div>
-              <p className="mb-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Current turn</p>
-              <h2 className="flex items-center gap-3 text-2xl font-black">
-                <span className="h-4 w-4 rounded-full shadow-[0_0_0_6px_rgba(255,255,255,0.10)]" style={{ backgroundColor: activePlayer.colorHex }} />
-                {activePlayer.name}
-              </h2>
-              <p className="mt-1 text-sm font-semibold text-slate-400">
-                {cardsDrawnThisTurn > 0 ? `Train cards drawn this turn: ${cardsDrawnThisTurn}/2` : "Choose one action: draw cards, claim route, or draw tickets."}
+              <h2 className="text-xl font-black">Europe Board</h2>
+              <p className="text-sm font-semibold text-slate-600">
+                Active player: <span className="font-black">{activePlayer.name}</span>
               </p>
             </div>
-
-            <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
-              {market.map((card, index) => (
-                <button
-                  key={`${card}-${index}`}
-                  type="button"
-                  onClick={() => drawMarketCard(card, index)}
-                  className={`group relative h-24 w-16 overflow-hidden rounded-2xl bg-gradient-to-br p-2 text-xs font-black shadow-xl shadow-black/25 ring-2 transition hover:-translate-y-1 ${CARD_META[card].className}`}
-                >
-                  <span className="absolute left-2 top-1 text-lg drop-shadow">{CARD_META[card].symbol}</span>
-                  <span className="absolute right-2 top-1 text-lg drop-shadow">🚂</span>
-                  <span className="grid h-full place-items-center rounded-xl border border-white/25 bg-white/20 text-center text-[11px] uppercase tracking-wide backdrop-blur-sm">
-                    {CARD_META[card].label}
-                  </span>
-                  <span className="absolute bottom-1 left-2 text-lg drop-shadow">🚃</span>
-                </button>
-              ))}
-
-              <button
-                type="button"
-                onClick={drawBlindCard}
-                className="h-24 w-16 rounded-2xl border-2 border-slate-400/50 bg-[linear-gradient(135deg,#334155,#020617)] p-2 text-xs font-black text-white shadow-xl shadow-black/25 transition hover:-translate-y-1"
-              >
-                <span className="block text-lg">🚂</span>
-                Deck
-                <small className="block text-sm text-slate-300">{deck.length}</small>
-              </button>
+            <div className="rounded-full bg-slate-900 px-4 py-2 text-sm font-black text-white">
+              {deck.length} cards in deck
             </div>
-          </header>
+          </div>
 
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 shadow-2xl shadow-black/40" style={{ aspectRatio: "800 / 560" }}>
-            <BoardBackground />
+          <div className="overflow-auto p-2">
+            <svg viewBox="0 0 100 75" className="min-h-[620px] w-full min-w-[940px] rounded-[1.5rem] bg-[#d7c29a]">
+              <defs>
+                <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+                  <feDropShadow dx="0" dy="0.55" stdDeviation="0.45" floodOpacity="0.45" />
+                </filter>
+                <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feDropShadow dx="0" dy="0.35" stdDeviation="0.35" floodOpacity="0.45" />
+                </filter>
+                <linearGradient id="water" x1="0%" x2="100%" y1="0%" y2="100%">
+                  <stop offset="0%" stopColor="#dceef3" />
+                  <stop offset="48%" stopColor="#b8dbe5" />
+                  <stop offset="100%" stopColor="#8fbecd" />
+                </linearGradient>
+                <radialGradient id="land" cx="48%" cy="45%" r="75%">
+                  <stop offset="0%" stopColor="#f1dfbb" />
+                  <stop offset="58%" stopColor="#d7b988" />
+                  <stop offset="100%" stopColor="#b88452" />
+                </radialGradient>
+                <pattern id="paperNoise" width="3" height="3" patternUnits="userSpaceOnUse">
+                  <rect width="3" height="3" fill="#fff7df" />
+                  <path d="M0 1.5 H3 M1.5 0 V3" stroke="#7a5b36" strokeWidth="0.08" opacity="0.35" />
+                  <circle cx="0.8" cy="0.7" r="0.12" fill="#5b3920" opacity="0.22" />
+                  <circle cx="2.2" cy="2.1" r="0.1" fill="#5b3920" opacity="0.18" />
+                </pattern>
+              </defs>
 
-            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 70" preserveAspectRatio="none">
+              <DecorativeMapBackground />
+              <BoardScoreTrack />
+
               {routes.map((route) => {
-                const from = cityById.get(route.from);
-                const to = cityById.get(route.to);
+                const meta = ROUTE_META[route.color];
                 const owner = players.find((player) => player.id === route.ownerId);
-
-                if (!from || !to) return null;
-
-                const { x1, y1, x2, y2, angle } = getOffsetRoutePoints(from, to, route.offset ?? 0);
-                const dx = x2 - x1;
-                const dy = y2 - y1;
-                const fill = owner ? owner.colorHex : ROUTE_META[route.color].fill;
-                const stroke = owner ? "#111827" : ROUTE_META[route.color].stroke;
+                const geometry = routeGeometry(route, cityById);
                 const selected = selectedRouteId === route.id;
+                const fill = owner?.colorHex ?? meta.fill;
+                const stroke = owner ? "#ffffff" : meta.stroke;
+
+                const items = Array.from({ length: route.length }, (_, index) => {
+                  const t = (index + 1) / (route.length + 1);
+                  const x = geometry.x1 + (geometry.x2 - geometry.x1) * t;
+                  const y = geometry.y1 + (geometry.y2 - geometry.y1) * t;
+
+                  return (
+                    <g key={`${route.id}-${index}`} transform={`translate(${x} ${y}) rotate(${geometry.angle})`}>
+                      <rect
+                        x="-1.32"
+                        y="-0.68"
+                        width="2.64"
+                        height="1.36"
+                        rx="0.28"
+                        fill={fill}
+                        stroke={stroke}
+                        strokeWidth={selected ? 0.34 : 0.18}
+                        filter="url(#shadow)"
+                      />
+                      <rect
+                        x="-0.92"
+                        y="-0.36"
+                        width="1.84"
+                        height="0.72"
+                        rx="0.18"
+                        fill="rgba(255,255,255,0.14)"
+                        stroke="rgba(15,23,42,0.14)"
+                        strokeWidth="0.08"
+                      />
+                      <circle cx="-0.82" cy="0.46" r="0.13" fill={owner ? "#ffffff" : "rgba(15,23,42,0.45)"} opacity="0.65" />
+                      <circle cx="0.82" cy="0.46" r="0.13" fill={owner ? "#ffffff" : "rgba(15,23,42,0.45)"} opacity="0.65" />
+                      {route.type === "ferry" && index < (route.ferryLocos ?? 1) && (
+                        <text
+                          x="0"
+                          y="0.28"
+                          textAnchor="middle"
+                          fontSize="0.95"
+                          fontWeight="900"
+                          fill={owner ? "#ffffff" : "#111827"}
+                        >
+                          ★
+                        </text>
+                      )}
+                    </g>
+                  );
+                });
 
                 return (
-                  <g key={route.id} className="cursor-pointer transition hover:opacity-85" onClick={() => setSelectedRouteId(route.id)}>
-                    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth="5.4" strokeLinecap="round" />
-
-                    {selected && <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#ffffff" strokeWidth="0.8" strokeLinecap="round" opacity="0.55" />}
-
-                    {Array.from({ length: route.length }).map((_, index) => {
-                      const t = (index + 1) / (route.length + 1);
-                      const x = x1 + dx * t;
-                      const y = y1 + dy * t;
-                      const isRequiredLoco = route.type === "ferry" && index < (route.ferryLocos ?? 1);
-
-                      return (
-                        <RouteSlot
-                          key={`${route.id}-${index}`}
-                          x={x}
-                          y={y}
-                          angle={angle}
-                          fill={fill}
-                          stroke={stroke}
-                          claimed={Boolean(owner)}
-                          type={route.type}
-                          isRequiredLoco={isRequiredLoco}
-                        />
-                      );
-                    })}
+                  <g key={route.id} className="cursor-pointer" onClick={() => setSelectedRouteId(route.id)}>
+                    <line
+                      x1={geometry.x1}
+                      y1={geometry.y1}
+                      x2={geometry.x2}
+                      y2={geometry.y2}
+                      stroke={selected ? "#10b981" : "rgba(15,23,42,0.24)"}
+                      strokeWidth={selected ? 1.25 : 0.8}
+                      strokeLinecap="round"
+                    />
+                    {items}
                   </g>
                 );
               })}
 
               {CITIES.map((city) => (
-                <CityNode key={city.id} city={city} active={selectedRoute?.from === city.id || selectedRoute?.to === city.id} />
+                <g key={city.id}>
+                  <circle cx={city.x} cy={city.y} r="1.45" fill="#b45309" stroke="#fff7d6" strokeWidth="0.55" filter="url(#shadow)" />
+                  <circle cx={city.x} cy={city.y} r="0.82" fill="#f59e0b" stroke="#78350f" strokeWidth="0.18" />
+                  <circle cx={city.x} cy={city.y} r="0.34" fill="#fff7ed" opacity="0.8" />
+                  <text
+                    x={city.x + (city.labelDx ?? 1)}
+                    y={city.y + (city.labelDy ?? -0.8)}
+                    textAnchor={city.labelAnchor ?? "start"}
+                    fontSize="1.18"
+                    fontWeight="900"
+                    fontFamily="Georgia, 'Times New Roman', serif"
+                    letterSpacing="0.04em"
+                    fill="#4a1f12"
+                    stroke="#f8e7bf"
+                    strokeWidth="0.28"
+                    paintOrder="stroke"
+                    style={{ textTransform: "uppercase" }}
+                  >
+                    {city.name}
+                  </text>
+                </g>
               ))}
             </svg>
           </div>
         </section>
 
-        <aside className="grid min-w-0 gap-3 md:grid-cols-2 xl:flex xl:flex-col">
-          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
-            <p className="mb-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Selected route</p>
+        <aside className="min-w-0 space-y-4">
+          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Claim route</h2>
+
             {selectedRoute ? (
-              <>
-                <h3 className="text-xl font-black">
-                  {cityName(selectedRoute.from)} → {cityName(selectedRoute.to)}
-                </h3>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <span className="rounded-2xl bg-white/10 p-3 text-xs font-bold text-slate-300">Need: {selectedRoute.length}</span>
-                  <span className="rounded-2xl bg-white/10 p-3 text-xs font-bold text-slate-300">Score: {selectedRoute.points}</span>
-                  <span className="rounded-2xl bg-white/10 p-3 text-xs font-bold text-slate-300">Color: {ROUTE_META[selectedRoute.color].label}</span>
+              <div className="space-y-3">
+                <div className="rounded-2xl bg-white/5 p-4">
+                  <p className="text-lg font-black">
+                    {cityName(selectedRoute.from)} → {cityName(selectedRoute.to)}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-slate-400">
+                    {selectedRoute.length} trains · {selectedRoute.points} points ·{" "}
+                    {selectedRoute.color === "gray" ? "Any color" : ROUTE_META[selectedRoute.color].label}
+                    {selectedRoute.type === "ferry" ? ` · ferry needs ${selectedRoute.ferryLocos ?? 1} loco` : ""}
+                    {selectedRoute.type === "tunnel" ? " · tunnel" : ""}
+                  </p>
                 </div>
-                <div className="mt-3 rounded-2xl bg-white/5 p-3 text-sm font-semibold text-slate-300">
-                  {selectedRoute.ownerId ? (
-                    <span className="text-red-200">Already claimed by {players.find((player) => player.id === selectedRoute.ownerId)?.name}.</span>
-                  ) : currentCanClaim ? (
-                    <span className="text-green-200">
-                      You will spend exactly {selectedRoute.length} cards: {spentCardsPreview(activePlayer.hand, selectedColor, selectedRoute)}.
-                    </span>
-                  ) : (
-                    <span className="text-yellow-200">You must have the full amount in one turn. Partial building is not allowed.</span>
-                  )}
-                </div>
-              </>
+
+                {selectedRoute.color === "gray" && (
+                  <div>
+                    <p className="mb-2 text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+                      Choose color for gray route
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {CLAIM_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => setSelectedColor(color)}
+                          className={`rounded-2xl px-3 py-2 text-xs font-black ring-2 transition ${
+                            selectedColor === color ? "ring-emerald-400" : "ring-white/10"
+                          } ${CARD_META[color].miniClassName}`}
+                        >
+                          {CARD_META[color].label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={claimSelectedRoute}
+                  disabled={!currentCanClaim}
+                  className="w-full rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 px-4 py-3 font-black text-white shadow-lg shadow-black/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+                >
+                  Claim selected route
+                </button>
+              </div>
             ) : (
-              <p className="text-sm leading-6 text-slate-400">Click any route on the board.</p>
+              <p className="rounded-2xl bg-white/5 p-4 text-sm font-semibold text-slate-400">
+                Click any route on the map to select it.
+              </p>
             )}
           </section>
 
-          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
-            <p className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Choose cards for claiming</p>
-            <div className="mb-4 grid grid-cols-3 gap-2">
-              {CLAIM_COLORS.map((color) => (
+          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Train cards</h2>
+
+            <div className="grid grid-cols-5 gap-2">
+              {market.map((card, index) => (
                 <button
-                  key={color}
+                  key={`${card}-${index}`}
                   type="button"
-                  onClick={() => setSelectedColor(color)}
-                  className={`min-h-16 rounded-2xl p-2 text-center text-xs font-black shadow-lg shadow-black/20 transition hover:-translate-y-0.5 ${CARD_META[color].miniClassName} ${
-                    selectedColor === color ? "ring-4 ring-white" : ""
-                  }`}
+                  onClick={() => drawMarketCard(index)}
+                  className="transition hover:-translate-y-1"
                 >
-                  <strong className="block text-xl leading-tight">{activePlayer.hand[color]}</strong>
-                  <span>{CARD_META[color].label}</span>
+                  <TrainCard card={card} />
                 </button>
               ))}
             </div>
 
             <button
               type="button"
-              disabled={!selectedRoute || !currentCanClaim || cardsDrawnThisTurn > 0}
-              onClick={claimSelectedRoute}
-              className="mb-2 w-full rounded-2xl bg-gradient-to-br from-red-500 to-orange-500 px-4 py-3 font-black text-white shadow-lg shadow-black/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+              onClick={drawBlindCard}
+              className="mt-3 w-full rounded-2xl bg-white/10 px-4 py-3 font-black text-white transition hover:bg-white/15"
             >
-              Claim full route
+              Draw blind card ({cardsDrawnThisTurn}/2)
             </button>
+          </section>
 
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={drawDestinationTickets}
-                disabled={cardsDrawnThisTurn > 0}
-                className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Draw tickets
-              </button>
-              <button
-                type="button"
-                onClick={activePlayer.isHuman ? nextTurn : botMove}
-                className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-white/15"
-              >
-                {activePlayer.isHuman ? "Skip" : "Bot move"}
-              </button>
+          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">
+              {activePlayer.name}'s hand
+            </h2>
+            <div className="grid grid-cols-3 gap-2">
+              {CARD_COLORS.map((color) => (
+                <div key={color} className={`rounded-2xl px-3 py-2 text-center text-xs font-black ${CARD_META[color].miniClassName}`}>
+                  {CARD_META[color].label}: {activePlayer.hand[color]}
+                </div>
+              ))}
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
-            <p className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Destination tickets</p>
-            <div className="grid gap-2">
-              {activePlayer.tickets.map((ticket) => {
-                const done = hasPath(activePlayer.id, ticket.from, ticket.to, routes);
+          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Your hidden tickets</h2>
+            <div className="space-y-2">
+              {players[0]?.tickets.map((ticket) => {
+                const completed = hasConnection(players[0], routes, ticket.from, ticket.to);
+
                 return (
                   <div
-                    key={`${ticket.from}-${ticket.to}-${ticket.points}`}
-                    className={`flex items-center justify-between gap-3 rounded-2xl p-3 text-sm font-bold ${done ? "bg-green-500/20 text-green-200" : "bg-white/10 text-slate-300"}`}
+                    key={ticketId(ticket)}
+                    className={`rounded-2xl border p-3 ${
+                      completed ? "border-emerald-400/40 bg-emerald-400/10" : "border-white/10 bg-white/5"
+                    }`}
                   >
-                    <span>
+                    <p className="font-black">
                       {cityName(ticket.from)} → {cityName(ticket.to)}
-                    </span>
-                    <strong>{done ? "+" : ""}{ticket.points}</strong>
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-slate-400">
+                      {ticket.points} pts · {completed ? "completed" : "not completed"}
+                    </p>
                   </div>
                 );
               })}
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
-            <p className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Leaderboard</p>
-            <div className="grid gap-2">
-              {rankedPlayers.map((player, index) => (
-                <div key={player.id} className="flex items-center justify-between rounded-2xl bg-white/10 p-3 text-sm font-bold text-slate-300">
-                  <span>
-                    #{index + 1} {player.name}
-                  </span>
-                  <strong className="text-slate-50">{player.score + completedTickets(player, routes)}</strong>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30 backdrop-blur-xl md:col-span-2 xl:col-span-1">
-            <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Rules implemented</p>
-            <ul className="mb-4 list-inside list-disc space-y-1 text-sm leading-6 text-slate-400">
-              <li>35 trains and 4 train cards at start.</li>
-              <li>Claim a full route only; no partial building.</li>
-              <li>Gray routes accept any one color plus locomotives.</li>
-              <li>Ferry routes require locomotive cards where stars are shown.</li>
-              <li>Tunnel routes are visually marked; extra tunnel draw is not simulated yet.</li>
-              <li>Face-up locomotive ends the draw action.</li>
-            </ul>
-
-            <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Game log</p>
-            <div className="grid max-h-64 gap-2 overflow-auto pr-1">
+          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Game log</h2>
+            <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
               {log.map((item) => (
-                <p key={item.id} className="rounded-2xl bg-white/5 p-3 text-sm leading-6 text-slate-400">
+                <p key={item.id} className="rounded-2xl bg-white/5 px-3 py-2 text-sm font-semibold text-slate-300">
                   {item.text}
                 </p>
               ))}

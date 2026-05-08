@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useUser } from "../../context/UserContext";
 import Button from "../../components/Button";
 
 interface LobbyPlayer {
   id?: string | number;
+  user_id?: string | number;
   username?: string;
   name?: string;
+  email?: string;
   avatar?: string;
+  avatar_url?: string;
+  image?: string;
 }
 
 interface Game {
@@ -27,6 +31,21 @@ interface ChatMessage {
   text: string;
   isSystem?: boolean;
 }
+
+interface BoardLobbySnapshot {
+  gameId: string;
+  name: string;
+  maxPlayers: number;
+  currentPlayers: number;
+  status: Game["status"];
+  players: LobbyPlayer[];
+  currentUserId?: string | number;
+  currentUsername?: string;
+  playerToken?: string;
+  startedAt: string;
+}
+
+const ACTIVE_LOBBY_STORAGE_KEY = "ttr_current_lobby";
 
 const getArrayFromApiResponse = (data: unknown): unknown[] => {
   if (Array.isArray(data)) return data;
@@ -59,7 +78,7 @@ const normalizeGame = (rawGame: unknown): Game | null => {
   if (id === undefined || id === null) return null;
 
   const maxPlayers = Number(
-    game.max_players ?? game.maxPlayers ?? game.player_limit ?? game.capacity ?? 5
+    game.max_players ?? game.maxPlayers ?? game.player_limit ?? game.capacity ?? 5,
   );
 
   const currentPlayers = Number(
@@ -69,7 +88,7 @@ const normalizeGame = (rawGame: unknown): Game | null => {
       game.player_count ??
       game.users_count ??
       rawPlayers.length ??
-      0
+      0,
   );
 
   const status: Game["status"] =
@@ -84,9 +103,13 @@ const normalizeGame = (rawGame: unknown): Game | null => {
     created_at: game.created_at ?? game.createdAt,
     players: rawPlayers.map((player: any, index: number): LobbyPlayer => ({
       id: player.id ?? player.user_id ?? index,
+      user_id: player.user_id,
       username: player.username ?? player.name ?? player.email ?? `Player ${index + 1}`,
       name: player.name ?? player.username ?? player.email,
+      email: player.email,
       avatar: player.avatar ?? player.avatar_url ?? player.image,
+      avatar_url: player.avatar_url,
+      image: player.image,
     })),
   };
 };
@@ -114,6 +137,7 @@ export default function LobbyPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [joiningGameId, setJoiningGameId] = useState<string | null>(null);
+  const [startingGameId, setStartingGameId] = useState<string | null>(null);
   const [showCreateGame, setShowCreateGame] = useState(false);
   const [newGameName, setNewGameName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(5);
@@ -129,34 +153,6 @@ export default function LobbyPage() {
     },
   ]);
   const [messageText, setMessageText] = useState("");
-
-  const fetchGames = useCallback(async (options?: { silent?: boolean }) => {
-    const silent = options?.silent ?? false;
-    if (!silent) setIsLoading(true);
-    setListError("");
-
-    try {
-      const token = localStorage.getItem("ttr_auth_token");
-      const response = await fetch("/api/v1/games", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to load available lobbies");
-      }
-
-      const data = await response.json();
-      setGames(normalizeGames(data));
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Failed to load available lobbies";
-      setListError(errorMsg);
-      console.error("Failed to fetch games:", error);
-    } finally {
-      if (!silent) setIsLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -189,31 +185,45 @@ export default function LobbyPage() {
     };
 
     fetchUserProfile();
-    void fetchGames();
+    fetchGames();
+  }, [isAuthenticated, navigate, setUser]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
 
     const intervalId = window.setInterval(() => {
-      void fetchGames({ silent: true });
-    }, 3500);
+      fetchGames();
+    }, 2500);
 
-    const handleFocus = () => {
-      void fetchGames({ silent: true });
-    };
+    return () => window.clearInterval(intervalId);
+  }, [isAuthenticated]);
 
-    const handleVisibility = () => {
-      if (!document.hidden) {
-        void fetchGames({ silent: true });
+  const fetchGames = async () => {
+    setIsLoading(true);
+    setListError("");
+
+    try {
+      const token = localStorage.getItem("ttr_auth_token");
+      const response = await fetch("/api/v1/games", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to load available lobbies");
       }
-    };
 
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [fetchGames, isAuthenticated, navigate, setUser]);
+      const data = await response.json();
+      setGames(normalizeGames(data));
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Failed to load available lobbies";
+      setListError(errorMsg);
+      console.error("Failed to fetch games:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const addSystemMessage = (text: string) => {
     const now = new Date();
@@ -229,6 +239,37 @@ export default function LobbyPage() {
         isSystem: true,
       },
     ]);
+  };
+
+  const isGameFull = (game: Game) => game.current_players >= game.max_players;
+
+  const saveLobbySnapshotForBoard = (game: Game, playerToken?: string) => {
+    const fallbackPlayers: LobbyPlayer[] = game.players?.length
+      ? game.players
+      : Array.from({ length: game.current_players }, (_, index) => ({
+          id: index === 0 ? user?.user_id ?? `player-${index + 1}` : `player-${index + 1}`,
+          username: index === 0 ? user?.username ?? "You" : `Player ${index + 1}`,
+        }));
+
+    const snapshot: BoardLobbySnapshot = {
+      gameId: game.id,
+      name: game.name,
+      maxPlayers: game.max_players,
+      currentPlayers: game.current_players,
+      status: game.status,
+      players: fallbackPlayers,
+      currentUserId: user?.user_id,
+      currentUsername: user?.username,
+      playerToken,
+      startedAt: new Date().toISOString(),
+    };
+
+    localStorage.setItem(ACTIVE_LOBBY_STORAGE_KEY, JSON.stringify(snapshot));
+  };
+
+  const openBoard = (game: Game, playerToken?: string) => {
+    saveLobbySnapshotForBoard(game, playerToken);
+    navigate(`/game/${game.id}`);
   };
 
   const handleCreateGame = async (e: FormEvent) => {
@@ -269,11 +310,6 @@ export default function LobbyPage() {
       setShowCreateGame(false);
       setCreateError("");
 
-      if (createdGame?.game_id) {
-        localStorage.setItem(`ttr_player_token_${createdGame.game_id}`, createdGame.player_token);
-        localStorage.setItem(`ttr_player_id_${createdGame.game_id}`, createdGame.player_id);
-      }
-
       await fetchGames();
 
       const normalizedCreatedGame = normalizeGame({
@@ -282,7 +318,7 @@ export default function LobbyPage() {
         max_players: createdGame?.max_players ?? maxPlayers,
         current_players: createdGame?.current_players ?? 1,
         status: createdGame?.status ?? "waiting",
-        players: createdGame?.players ?? [{ username: user?.username || "Host" }],
+        players: createdGame?.players ?? [{ id: user?.user_id, username: user?.username || "Host" }],
       });
 
       if (normalizedCreatedGame) {
@@ -293,9 +329,6 @@ export default function LobbyPage() {
       }
 
       addSystemMessage(`✨ ${user?.username} created lobby: ${gameName}`);
-      if (createdGame?.game_id) {
-        navigate(`/game/${createdGame.game_id}`);
-      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Failed to create lobby";
       setCreateError(errorMsg);
@@ -308,6 +341,8 @@ export default function LobbyPage() {
 
   const handleJoinGame = async (gameId: string) => {
     setJoiningGameId(gameId);
+
+    const currentGame = games.find((game) => game.id === gameId);
 
     try {
       const token = localStorage.getItem("ttr_auth_token");
@@ -323,7 +358,8 @@ export default function LobbyPage() {
       });
 
       if (response.status === 404 || response.status === 405) {
-        navigate(`/game/${gameId}`);
+        if (currentGame) openBoard(currentGame);
+        else navigate(`/game/${gameId}`);
         return;
       }
 
@@ -333,21 +369,83 @@ export default function LobbyPage() {
         throw new Error(joinData?.detail || "Failed to join lobby");
       }
 
-      if (joinData?.player_token) {
-        localStorage.setItem(`ttr_player_token_${gameId}`, joinData.player_token);
+      const playerToken = joinData?.player_token;
+      if (playerToken) {
+        localStorage.setItem(`ttr_player_token_${gameId}`, playerToken);
       }
 
-      if (joinData?.player_id) {
-        localStorage.setItem(`ttr_player_id_${joinData?.game_id || gameId}`, joinData.player_id);
+      const updatedGame = normalizeGame({
+        ...currentGame,
+        ...joinData,
+        id: joinData?.game_id ?? currentGame?.id ?? gameId,
+        name: joinData?.name ?? currentGame?.name ?? "Lobby",
+        max_players: joinData?.max_players ?? currentGame?.max_players ?? 5,
+        current_players:
+          joinData?.current_players ??
+          joinData?.players_count ??
+          Math.min((currentGame?.current_players ?? 0) + 1, currentGame?.max_players ?? 5),
+        status: joinData?.status ?? currentGame?.status ?? "waiting",
+        players:
+          joinData?.players ??
+          currentGame?.players ??
+          [{ id: user?.user_id, username: user?.username || "Player" }],
+      });
+
+      if (updatedGame && (isGameFull(updatedGame) || updatedGame.status === "started")) {
+        openBoard(updatedGame, playerToken);
+        return;
       }
 
-      navigate(`/game/${joinData?.game_id || gameId}`);
+      await fetchGames();
+      addSystemMessage(`✅ ${user?.username} joined lobby. Waiting for more players...`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Failed to join lobby";
       addSystemMessage(`❌ ${errorMsg}`);
       console.error("Failed to join game:", error);
     } finally {
       setJoiningGameId(null);
+    }
+  };
+
+  const handleStartGame = async (game: Game) => {
+    setStartingGameId(game.id);
+
+    try {
+      const token = localStorage.getItem("ttr_auth_token");
+      const response = await fetch(`/api/v1/games/${game.id}/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 404 || response.status === 405) {
+        openBoard({ ...game, status: "started" });
+        return;
+      }
+
+      const startData = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(startData?.detail || "Failed to start game");
+      }
+
+      const startedGame = normalizeGame({
+        ...game,
+        ...startData,
+        id: startData?.game_id ?? game.id,
+        status: startData?.status ?? "started",
+        players: startData?.players ?? game.players,
+      });
+
+      openBoard(startedGame ?? { ...game, status: "started" });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Failed to start game";
+      addSystemMessage(`❌ ${errorMsg}`);
+      console.error("Failed to start game:", error);
+    } finally {
+      setStartingGameId(null);
     }
   };
 
@@ -383,7 +481,7 @@ export default function LobbyPage() {
           (_, index): LobbyPlayer => ({
             id: `filled-${index}`,
             username: index === 0 ? "Host" : `P${index + 1}`,
-          })
+          }),
         );
 
     const freeSlots = Math.max(game.max_players - playersToRender.length, 0);
@@ -393,6 +491,7 @@ export default function LobbyPage() {
         <div className="flex -space-x-2">
           {playersToRender.slice(0, game.max_players).map((player, index) => {
             const playerName = player.username ?? player.name ?? `P${index + 1}`;
+            const avatarUrl = player.avatar ?? player.avatar_url ?? player.image;
 
             return (
               <div
@@ -400,12 +499,8 @@ export default function LobbyPage() {
                 title={playerName}
                 className="grid h-9 w-9 place-items-center rounded-full border-2 border-white bg-gradient-to-br from-[#4bbda6] to-[#2a8b7d] text-xs font-black text-white shadow-sm"
               >
-                {player.avatar ? (
-                  <img
-                    src={player.avatar}
-                    alt={playerName}
-                    className="h-full w-full rounded-full object-cover"
-                  />
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={playerName} className="h-full w-full rounded-full object-cover" />
                 ) : (
                   getInitials(playerName)
                 )}
@@ -460,6 +555,7 @@ export default function LobbyPage() {
               variant="secondary"
               onClick={() => {
                 localStorage.removeItem("ttr_auth_token");
+                localStorage.removeItem(ACTIVE_LOBBY_STORAGE_KEY);
                 navigate("/login");
               }}
               className="px-4"
@@ -549,22 +645,16 @@ export default function LobbyPage() {
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
               <div>
                 <h2 className="text-2xl font-semibold text-slate-600">Available Lobbies</h2>
-                <p className="mt-1 text-sm text-slate-400">Choose a lobby or create a new one</p>
+                <p className="mt-1 text-sm text-slate-400">When lobby is full, start the game and choose hidden tickets</p>
               </div>
-              <Button
-                variant="primary"
-                onClick={() => setShowCreateGame(!showCreateGame)}
-                className="px-4"
-              >
+              <Button variant="primary" onClick={() => setShowCreateGame(!showCreateGame)} className="px-4">
                 + Create Lobby
               </Button>
             </div>
 
             {showCreateGame && (
               <div className="border-b border-slate-100 bg-slate-50 px-6 py-5">
-                {createError && (
-                  <p className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-700">❌ {createError}</p>
-                )}
+                {createError && <p className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-700">❌ {createError}</p>}
 
                 <form onSubmit={handleCreateGame} className="flex flex-col gap-3">
                   <div>
@@ -595,12 +685,7 @@ export default function LobbyPage() {
                   </div>
 
                   <div className="flex gap-3">
-                    <Button
-                      variant="primary"
-                      type="submit"
-                      className="flex-1 px-6"
-                      disabled={isCreatingGame}
-                    >
+                    <Button variant="primary" type="submit" className="flex-1 px-6" disabled={isCreatingGame}>
                       {isCreatingGame ? "Creating..." : "Create Lobby"}
                     </Button>
                     <Button
@@ -628,10 +713,8 @@ export default function LobbyPage() {
               </div>
             ) : listError ? (
               <div className="px-6 py-10 text-center">
-                <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-                  ❌ {listError}
-                </p>
-                <Button variant="secondary" onClick={() => void fetchGames()} className="px-8">
+                <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">❌ {listError}</p>
+                <Button variant="secondary" onClick={fetchGames} className="px-8">
                   Try Again
                 </Button>
               </div>
@@ -645,7 +728,9 @@ export default function LobbyPage() {
             ) : (
               <div className="grid gap-4 p-6">
                 {games.map((game) => {
-                  const isJoinable = game.status === "waiting" && game.current_players < game.max_players;
+                  const full = isGameFull(game);
+                  const isJoinable = game.status === "waiting" && !full;
+                  const canOpenBoard = game.status === "started" || full;
 
                   return (
                     <div
@@ -657,18 +742,14 @@ export default function LobbyPage() {
                           <h3 className="truncate text-xl font-black text-slate-700">{game.name}</h3>
                           <span
                             className={`rounded-full px-3 py-1 text-xs font-bold ${
-                              game.status === "waiting"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : game.status === "started"
+                              game.status === "started" || full
                                 ? "bg-amber-100 text-amber-700"
+                                : game.status === "waiting"
+                                ? "bg-emerald-100 text-emerald-700"
                                 : "bg-slate-100 text-slate-500"
                             }`}
                           >
-                            {game.status === "waiting"
-                              ? "Waiting"
-                              : game.status === "started"
-                              ? "Playing"
-                              : "Finished"}
+                            {game.status === "started" ? "Started" : full ? "Full" : game.status === "waiting" ? "Waiting" : "Finished"}
                           </span>
                         </div>
 
@@ -680,22 +761,23 @@ export default function LobbyPage() {
                           <Button
                             variant="primary"
                             onClick={() => handleJoinGame(game.id)}
-                            className="min-w-28 px-6"
+                            className="min-w-32 px-6"
                             disabled={joiningGameId === game.id}
                           >
                             {joiningGameId === game.id ? "Joining..." : "Join"}
                           </Button>
-                        ) : game.status === "started" ? (
+                        ) : canOpenBoard ? (
                           <Button
-                            variant="secondary"
-                            onClick={() => navigate(`/game/${game.id}`)}
-                            className="min-w-28 px-6"
+                            variant="primary"
+                            onClick={() => handleStartGame(game)}
+                            className="min-w-32 px-6"
+                            disabled={startingGameId === game.id}
                           >
-                            Watch
+                            {startingGameId === game.id ? "Starting..." : game.status === "started" ? "Open Game" : "Start Game"}
                           </Button>
                         ) : (
-                          <div className="min-w-28 rounded-md bg-gray-100 px-6 py-2 text-center text-sm font-semibold text-gray-500">
-                            Full
+                          <div className="min-w-32 rounded-md bg-gray-100 px-6 py-2 text-center text-sm font-semibold text-gray-500">
+                            Finished
                           </div>
                         )}
                       </div>
@@ -739,14 +821,6 @@ export default function LobbyPage() {
                 <span className="font-bold text-slate-700">—%</span>
               </div>
             </div>
-          </section>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="mb-3 text-lg font-bold text-slate-700">About the Game</h3>
-            <p className="text-sm leading-relaxed text-slate-600">
-              Ticket to Ride is a thrilling railway-themed board game where players compete to claim routes and
-              complete destination tickets. Strategy, planning, and a bit of luck determine the winner!
-            </p>
           </section>
         </aside>
       </div>
