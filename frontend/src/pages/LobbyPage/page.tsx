@@ -121,28 +121,33 @@ const normalizeGames = (data: unknown): Game[] => {
 };
 
 const getInitials = (name: string) => {
-  return name
+  const initials = name
     .split(" ")
     .filter(Boolean)
     .map((part) => part[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  return initials || "?";
 };
 
 export default function LobbyPage() {
   const navigate = useNavigate();
   const { user, isAuthenticated, setUser } = useUser();
+
   const [games, setGames] = useState<Game[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [joiningGameId, setJoiningGameId] = useState<string | null>(null);
   const [startingGameId, setStartingGameId] = useState<string | null>(null);
+
   const [showCreateGame, setShowCreateGame] = useState(false);
   const [newGameName, setNewGameName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(5);
   const [createError, setCreateError] = useState("");
   const [listError, setListError] = useState("");
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 1,
@@ -185,21 +190,21 @@ export default function LobbyPage() {
     };
 
     fetchUserProfile();
-    fetchGames();
+    fetchGames(true);
   }, [isAuthenticated, navigate, setUser]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const intervalId = window.setInterval(() => {
-      fetchGames();
+      fetchGames(false);
     }, 2500);
 
     return () => window.clearInterval(intervalId);
   }, [isAuthenticated]);
 
-  const fetchGames = async () => {
-    setIsLoading(true);
+  const fetchGames = async (showLoader = true) => {
+    if (showLoader) setIsLoading(true);
     setListError("");
 
     try {
@@ -221,7 +226,7 @@ export default function LobbyPage() {
       setListError(errorMsg);
       console.error("Failed to fetch games:", error);
     } finally {
-      setIsLoading(false);
+      if (showLoader) setIsLoading(false);
     }
   };
 
@@ -243,10 +248,36 @@ export default function LobbyPage() {
 
   const isGameFull = (game: Game) => game.current_players >= game.max_players;
 
+  const withCurrentUserAsPlayer = (players: LobbyPlayer[] = []): LobbyPlayer[] => {
+    const currentUserId = user?.user_id;
+    const currentUsername = user?.username;
+
+    const alreadyExists = players.some((player) => {
+      const id = player.id ?? player.user_id;
+      return (
+        String(id) === String(currentUserId) ||
+        player.username === currentUsername ||
+        player.name === currentUsername
+      );
+    });
+
+    if (alreadyExists) return players;
+
+    return [
+      ...players,
+      {
+        id: currentUserId ?? `local-${Date.now()}`,
+        user_id: currentUserId,
+        username: currentUsername ?? "Player",
+        name: currentUsername ?? "Player",
+      },
+    ];
+  };
+
   const saveLobbySnapshotForBoard = (game: Game, playerToken?: string) => {
-    const fallbackPlayers: LobbyPlayer[] = game.players?.length
-      ? game.players
-      : Array.from({ length: game.current_players }, (_, index) => ({
+    const playersWithFallback: LobbyPlayer[] = game.players?.length
+      ? withCurrentUserAsPlayer(game.players)
+      : Array.from({ length: Math.max(game.current_players, 1) }, (_, index) => ({
           id: index === 0 ? user?.user_id ?? `player-${index + 1}` : `player-${index + 1}`,
           username: index === 0 ? user?.username ?? "You" : `Player ${index + 1}`,
         }));
@@ -255,9 +286,9 @@ export default function LobbyPage() {
       gameId: game.id,
       name: game.name,
       maxPlayers: game.max_players,
-      currentPlayers: game.current_players,
+      currentPlayers: Math.max(game.current_players, playersWithFallback.length),
       status: game.status,
-      players: fallbackPlayers,
+      players: playersWithFallback,
       currentUserId: user?.user_id,
       currentUsername: user?.username,
       playerToken,
@@ -310,8 +341,6 @@ export default function LobbyPage() {
       setShowCreateGame(false);
       setCreateError("");
 
-      await fetchGames();
-
       const normalizedCreatedGame = normalizeGame({
         ...createdGame,
         name: createdGame?.name ?? createdGame?.lobby_name ?? gameName,
@@ -322,12 +351,21 @@ export default function LobbyPage() {
       });
 
       if (normalizedCreatedGame) {
+        if (createdGame?.host_token) {
+          localStorage.setItem(`ttr_host_token_${normalizedCreatedGame.id}`, createdGame.host_token);
+        }
+
+        if (createdGame?.player_token) {
+          localStorage.setItem(`ttr_player_token_${normalizedCreatedGame.id}`, createdGame.player_token);
+        }
+
         setGames((prev) => {
           const alreadyExists = prev.some((game) => game.id === normalizedCreatedGame.id);
           return alreadyExists ? prev : [normalizedCreatedGame, ...prev];
         });
       }
 
+      await fetchGames(false);
       addSystemMessage(`✨ ${user?.username} created lobby: ${gameName}`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Failed to create lobby";
@@ -341,7 +379,6 @@ export default function LobbyPage() {
 
   const handleJoinGame = async (gameId: string) => {
     setJoiningGameId(gameId);
-
     const currentGame = games.find((game) => game.id === gameId);
 
     try {
@@ -358,8 +395,25 @@ export default function LobbyPage() {
       });
 
       if (response.status === 404 || response.status === 405) {
-        if (currentGame) openBoard(currentGame);
-        else navigate(`/game/${gameId}`);
+        if (!currentGame) {
+          navigate(`/game/${gameId}`);
+          return;
+        }
+
+        const locallyJoinedGame: Game = {
+          ...currentGame,
+          current_players: Math.min(currentGame.current_players + 1, currentGame.max_players),
+          players: withCurrentUserAsPlayer(currentGame.players),
+        };
+
+        setGames((prev) => prev.map((game) => (game.id === gameId ? locallyJoinedGame : game)));
+
+        if (isGameFull(locallyJoinedGame)) {
+          openBoard({ ...locallyJoinedGame, status: "started" });
+        } else {
+          addSystemMessage(`✅ ${user?.username} joined lobby. Waiting for more players...`);
+        }
+
         return;
       }
 
@@ -387,16 +441,21 @@ export default function LobbyPage() {
         status: joinData?.status ?? currentGame?.status ?? "waiting",
         players:
           joinData?.players ??
-          currentGame?.players ??
-          [{ id: user?.user_id, username: user?.username || "Player" }],
+          withCurrentUserAsPlayer(currentGame?.players ?? [
+            { id: user?.user_id, username: user?.username || "Player" },
+          ]),
       });
 
-      if (updatedGame && (isGameFull(updatedGame) || updatedGame.status === "started")) {
-        openBoard(updatedGame, playerToken);
-        return;
+      if (updatedGame) {
+        setGames((prev) => prev.map((game) => (game.id === gameId ? updatedGame : game)));
+
+        if (isGameFull(updatedGame) || updatedGame.status === "started") {
+          openBoard({ ...updatedGame, status: "started" }, playerToken);
+          return;
+        }
       }
 
-      await fetchGames();
+      await fetchGames(false);
       addSystemMessage(`✅ ${user?.username} joined lobby. Waiting for more players...`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Failed to join lobby";
@@ -412,12 +471,15 @@ export default function LobbyPage() {
 
     try {
       const token = localStorage.getItem("ttr_auth_token");
+      const hostToken = localStorage.getItem(`ttr_host_token_${game.id}`);
+
       const response = await fetch(`/api/v1/games/${game.id}/start`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        body: JSON.stringify(hostToken ? { host_token: hostToken } : {}),
       });
 
       if (response.status === 404 || response.status === 405) {
@@ -645,7 +707,9 @@ export default function LobbyPage() {
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
               <div>
                 <h2 className="text-2xl font-semibold text-slate-600">Available Lobbies</h2>
-                <p className="mt-1 text-sm text-slate-400">When lobby is full, start the game and choose hidden tickets</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  When lobby is full, open the board and choose hidden tickets
+                </p>
               </div>
               <Button variant="primary" onClick={() => setShowCreateGame(!showCreateGame)} className="px-4">
                 + Create Lobby
@@ -714,7 +778,7 @@ export default function LobbyPage() {
             ) : listError ? (
               <div className="px-6 py-10 text-center">
                 <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">❌ {listError}</p>
-                <Button variant="secondary" onClick={fetchGames} className="px-8">
+                <Button variant="secondary" onClick={() => fetchGames(true)} className="px-8">
                   Try Again
                 </Button>
               </div>
@@ -773,7 +837,7 @@ export default function LobbyPage() {
                             className="min-w-32 px-6"
                             disabled={startingGameId === game.id}
                           >
-                            {startingGameId === game.id ? "Starting..." : game.status === "started" ? "Open Game" : "Start Game"}
+                            {startingGameId === game.id ? "Opening..." : game.status === "started" ? "Open Game" : "Start Game"}
                           </Button>
                         ) : (
                           <div className="min-w-32 rounded-md bg-gray-100 px-6 py-2 text-center text-sm font-semibold text-gray-500">
