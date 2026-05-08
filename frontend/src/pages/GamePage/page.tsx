@@ -1,71 +1,20 @@
-import { useMemo, useState } from "react";
-import { useParams } from "react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import Button from "../../components/Button";
+import { getAuthToken } from "../../lib/authApi";
+import { claimRoute, getGameState, startGame, type GameRoute, type GameState } from "../../lib/gameApi";
+import { connectGameSocket, type GameSocketEvent } from "../../lib/gameSocket";
 
-type PlayerColor = "red" | "blue" | "green" | "yellow" | "black";
-type CardColor =
-  | "red"
-  | "blue"
-  | "green"
-  | "yellow"
-  | "black"
-  | "white"
-  | "orange"
-  | "pink"
-  | "wild";
-type RouteColor = Exclude<CardColor, "wild"> | "gray";
-type RouteType = "normal" | "ferry" | "tunnel";
+const playerTokenKey = (gameId: string) => `ttr_player_token_${gameId}`;
+const playerIdKey = (gameId: string) => `ttr_player_id_${gameId}`;
+const startingTicketsKey = (gameId: string) => `ttr_selected_starting_tickets_${gameId}`;
 
-type CityId =
-  | "edinburgh"
-  | "london"
-  | "amsterdam"
-  | "bruxelles"
-  | "dieppe"
-  | "brest"
-  | "paris"
-  | "pamplona"
-  | "madrid"
-  | "lisboa"
-  | "cadiz"
-  | "barcelona"
-  | "marseille"
-  | "zurich"
-  | "frankfurt"
-  | "essen"
-  | "berlin"
-  | "copenhagen"
-  | "stockholm"
-  | "danzig"
-  | "riga"
-  | "petrograd"
-  | "moscow"
-  | "warsaw"
-  | "wilno"
-  | "smolensk"
-  | "kyiv"
-  | "kharkov"
-  | "rostov"
-  | "sevastopol"
-  | "sochi"
-  | "erzurum"
-  | "angora"
-  | "constantinople"
-  | "smyrna"
-  | "athens"
-  | "sofia"
-  | "bucharest"
-  | "budapest"
-  | "vienna"
-  | "munich"
-  | "venezia"
-  | "zagreb"
-  | "sarajevo"
-  | "roma"
-  | "brindisi"
-  | "palermo";
+type RouteColor = "red" | "blue" | "green" | "yellow" | "black" | "white" | "orange" | "pink" | "gray";
+type TicketType = "long" | "short";
+type ConnectionStatus = "connecting" | "connected" | "closed" | "error";
 
 interface City {
-  id: CityId;
+  id: string;
   name: string;
   x: number;
   y: number;
@@ -74,68 +23,37 @@ interface City {
   labelAnchor?: "start" | "middle" | "end";
 }
 
-interface Route {
+interface TemplateRoute {
   id: string;
-  from: CityId;
-  to: CityId;
+  from: string;
+  to: string;
+  color: RouteColor;
+  length: number;
+  offset?: number;
+  type?: "normal" | "ferry" | "tunnel";
+  ferryLocos?: number;
+}
+
+interface BoardRoute {
+  backendId: number;
+  from: string;
+  to: string;
   color: RouteColor;
   length: number;
   points: number;
-  ownerId?: string;
+  claimedByPlayerId: string | null;
   offset?: number;
-  type?: RouteType;
+  type?: "normal" | "ferry" | "tunnel";
   ferryLocos?: number;
+  raw: GameRoute;
 }
 
 interface Ticket {
   id?: string;
-  from: CityId;
-  to: CityId;
+  from: string;
+  to: string;
   points: number;
-  type?: "long" | "short";
-}
-
-interface Player {
-  id: string;
-  name: string;
-  avatar: string;
-  color: PlayerColor;
-  colorHex: string;
-  score: number;
-  trains: number;
-  hand: Record<CardColor, number>;
-  tickets: Ticket[];
-  isHuman: boolean;
-  hasSelectedStartingTickets?: boolean;
-}
-
-interface LogItem {
-  id: number;
-  text: string;
-}
-
-interface LobbySnapshotPlayer {
-  id?: string | number;
-  user_id?: string | number;
-  username?: string;
-  name?: string;
-  email?: string;
-  avatar?: string;
-  avatar_url?: string;
-  image?: string;
-}
-
-interface BoardLobbySnapshot {
-  gameId: string;
-  name: string;
-  maxPlayers: number;
-  currentPlayers: number;
-  status: "waiting" | "started" | "finished";
-  players: LobbySnapshotPlayer[];
-  currentUserId?: string | number;
-  currentUsername?: string;
-  playerToken?: string;
-  startedAt: string;
+  type?: TicketType;
 }
 
 interface StartingTicketOffer {
@@ -143,121 +61,6 @@ interface StartingTicketOffer {
   shortTickets: Ticket[];
   allTickets: Ticket[];
 }
-
-const ACTIVE_LOBBY_STORAGE_KEY = "ttr_current_lobby";
-const STARTING_TICKETS_STORAGE_PREFIX = "ttr_selected_starting_tickets";
-const PLAYER_COLOR_ORDER: PlayerColor[] = ["red", "blue", "green", "yellow", "black"];
-const PLAYER_AVATARS = ["🚂", "🧑‍💻", "🦊", "🦉", "😎"];
-
-const CARD_COLORS: CardColor[] = [
-  "red",
-  "blue",
-  "green",
-  "yellow",
-  "black",
-  "white",
-  "orange",
-  "pink",
-  "wild",
-];
-
-const CLAIM_COLORS: CardColor[] = [
-  "red",
-  "blue",
-  "green",
-  "yellow",
-  "black",
-  "white",
-  "orange",
-  "pink",
-  "wild",
-];
-
-const ROUTE_POINTS: Record<number, number> = {
-  1: 1,
-  2: 2,
-  3: 4,
-  4: 7,
-  5: 10,
-  6: 15,
-  7: 18,
-  8: 21,
-};
-
-const CARD_META: Record<
-  CardColor,
-  {
-    label: string;
-    className: string;
-    miniClassName: string;
-    hex: string;
-    symbol: string;
-  }
-> = {
-  red: {
-    label: "Red",
-    className: "from-red-400 to-red-700 text-white ring-red-200/50",
-    miniClassName: "bg-red-500 text-white",
-    hex: "#ef4444",
-    symbol: "♥",
-  },
-  blue: {
-    label: "Blue",
-    className: "from-blue-400 to-blue-700 text-white ring-blue-200/50",
-    miniClassName: "bg-blue-500 text-white",
-    hex: "#3b82f6",
-    symbol: "◆",
-  },
-  green: {
-    label: "Green",
-    className: "from-green-300 to-green-700 text-slate-950 ring-green-100/50",
-    miniClassName: "bg-green-500 text-slate-950",
-    hex: "#22c55e",
-    symbol: "✚",
-  },
-  yellow: {
-    label: "Yellow",
-    className: "from-yellow-200 to-yellow-500 text-slate-950 ring-yellow-100/60",
-    miniClassName: "bg-yellow-400 text-slate-950",
-    hex: "#facc15",
-    symbol: "♣",
-  },
-  black: {
-    label: "Black",
-    className: "from-zinc-700 to-zinc-950 text-white ring-zinc-300/30",
-    miniClassName: "bg-zinc-950 text-white",
-    hex: "#18181b",
-    symbol: "◈",
-  },
-  white: {
-    label: "White",
-    className: "from-white to-slate-300 text-slate-950 ring-white/70",
-    miniClassName: "bg-white text-slate-950",
-    hex: "#f8fafc",
-    symbol: "✦",
-  },
-  orange: {
-    label: "Orange",
-    className: "from-orange-300 to-orange-600 text-white ring-orange-100/50",
-    miniClassName: "bg-orange-500 text-white",
-    hex: "#f97316",
-    symbol: "●",
-  },
-  pink: {
-    label: "Pink",
-    className: "from-fuchsia-300 to-pink-600 text-white ring-pink-100/50",
-    miniClassName: "bg-pink-500 text-white",
-    hex: "#ec4899",
-    symbol: "⬟",
-  },
-  wild: {
-    label: "Loco",
-    className: "from-red-500 via-yellow-300 to-blue-600 text-white ring-white/50",
-    miniClassName: "bg-gradient-to-br from-red-500 via-yellow-300 to-blue-600 text-white",
-    hex: "#8b5cf6",
-    symbol: "★",
-  },
-};
 
 const ROUTE_META: Record<RouteColor, { fill: string; stroke: string; label: string }> = {
   red: { fill: "#ef4444", stroke: "#991b1b", label: "Red" },
@@ -268,16 +71,10 @@ const ROUTE_META: Record<RouteColor, { fill: string; stroke: string; label: stri
   white: { fill: "#f8fafc", stroke: "#64748b", label: "White" },
   orange: { fill: "#f97316", stroke: "#c2410c", label: "Orange" },
   pink: { fill: "#ec4899", stroke: "#be185d", label: "Pink" },
-  gray: { fill: "#cbd5e1", stroke: "#64748b", label: "Any one color" },
+  gray: { fill: "#cbd5e1", stroke: "#64748b", label: "Any color" },
 };
 
-const PLAYER_COLORS: Record<PlayerColor, string> = {
-  red: "#ef4444",
-  blue: "#3b82f6",
-  green: "#22c55e",
-  yellow: "#eab308",
-  black: "#27272a",
-};
+const PLAYER_COLOR_HEX = ["#ef4444", "#3b82f6", "#22c55e", "#eab308", "#27272a"];
 
 const CITIES: City[] = [
   { id: "edinburgh", name: "Edinburgh", x: 12, y: 8, labelDx: 1.2, labelDy: -1.3 },
@@ -329,7 +126,8 @@ const CITIES: City[] = [
   { id: "palermo", name: "Palermo", x: 48, y: 67.5, labelDx: 1.1, labelDy: -0.8 },
 ];
 
-const ROUTE_DEFS: Omit<Route, "points">[] = [
+
+const ROUTE_DEFS: TemplateRoute[] = [
   { id: "edinburgh-london", from: "edinburgh", to: "london", color: "black", length: 4 },
   { id: "london-amsterdam", from: "london", to: "amsterdam", color: "gray", length: 2, offset: -0.55 },
   { id: "london-amsterdam-2", from: "london", to: "amsterdam", color: "orange", length: 2, offset: 0.55 },
@@ -420,10 +218,6 @@ const ROUTE_DEFS: Omit<Route, "points">[] = [
   { id: "sarajevo-athens", from: "sarajevo", to: "athens", color: "gray", length: 4 },
 ];
 
-const INITIAL_ROUTES: Route[] = ROUTE_DEFS.map((route) => ({
-  ...route,
-  points: ROUTE_POINTS[route.length] ?? 0,
-}));
 
 const INITIAL_TICKETS: Ticket[] = [
   { from: "london", to: "roma", points: 10 },
@@ -452,52 +246,76 @@ const INITIAL_TICKETS: Ticket[] = [
   { from: "athens", to: "wilno", points: 14 },
 ];
 
-function emptyHand(): Record<CardColor, number> {
-  return {
-    red: 0,
-    blue: 0,
-    green: 0,
-    yellow: 0,
-    black: 0,
-    white: 0,
-    orange: 0,
-    pink: 0,
-    wild: 0,
-  };
+
+function routePoints(length: number): number {
+  const points: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 10, 6: 15, 7: 18, 8: 21 };
+  return points[length] ?? length;
 }
 
-function shuffle<T>(items: T[]): T[] {
-  const copy = [...items];
-
-  for (let i = copy.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-
-  return copy;
+function normalizeCityName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
 }
 
-function makeDeck(): CardColor[] {
-  const deck: CardColor[] = [];
+const CITY_ALIASES: Record<string, string> = {
+  kiev: "kyiv",
+  kyiv: "kyiv",
+  warsaw: "warsaw",
+  warszawa: "warsaw",
+  wilno: "wilno",
+  vilnius: "wilno",
+  danzig: "danzig",
+  gdansk: "danzig",
+  moscow: "moscow",
+  moskva: "moscow",
+  stpetersburg: "petrograd",
+  saintpetersburg: "petrograd",
+  petersburg: "petrograd",
+  petrograd: "petrograd",
+  copenhagen: "copenhagen",
+  kobenhavn: "copenhagen",
+  kopenhagen: "copenhagen",
+  munich: "munich",
+  munchen: "munich",
+  zurich: "zurich",
+  venezia: "venezia",
+  venice: "venezia",
+  roma: "roma",
+  rome: "roma",
+  lisboa: "lisboa",
+  lisbon: "lisboa",
+  bruxelles: "bruxelles",
+  brussels: "bruxelles",
+  athina: "athens",
+  athens: "athens",
+  bucuresti: "bucharest",
+  bucharest: "bucharest",
+  smyrna: "smyrna",
+  izmir: "smyrna",
+  constantinople: "constantinople",
+  istanbul: "constantinople",
+  sevastopol: "sevastopol",
+  kharkiv: "kharkov",
+  kharkov: "kharkov",
+};
 
-  CARD_COLORS.forEach((color) => {
-    const amount = color === "wild" ? 14 : 12;
+const CITY_ID_BY_NORMALIZED_NAME = new Map<string, string>();
+CITIES.forEach((city) => {
+  CITY_ID_BY_NORMALIZED_NAME.set(normalizeCityName(city.id), city.id);
+  CITY_ID_BY_NORMALIZED_NAME.set(normalizeCityName(city.name), city.id);
+});
+Object.entries(CITY_ALIASES).forEach(([alias, id]) => CITY_ID_BY_NORMALIZED_NAME.set(normalizeCityName(alias), id));
 
-    for (let i = 0; i < amount; i += 1) {
-      deck.push(color);
-    }
-  });
-
-  return shuffle(deck);
+function resolveCityId(value: string): string | null {
+  return CITY_ID_BY_NORMALIZED_NAME.get(normalizeCityName(value)) ?? null;
 }
 
-function drawOne(deck: CardColor[]): { card?: CardColor; deck: CardColor[] } {
-  if (deck.length === 0) return { deck };
-  const [card, ...rest] = deck;
-  return { card, deck: rest };
-}
-
-function cityName(id: CityId): string {
+function cityName(id: string): string {
   return CITIES.find((city) => city.id === id)?.name ?? id;
 }
 
@@ -505,270 +323,99 @@ function ticketId(ticket: Ticket): string {
   return ticket.id ?? `${ticket.from}-${ticket.to}-${ticket.points}`;
 }
 
-function withTicketMeta(ticket: Ticket, type: "long" | "short"): Ticket {
-  return {
-    ...ticket,
-    id: `${type}-${ticket.from}-${ticket.to}-${ticket.points}`,
-    type,
-  };
+function withTicketMeta(ticket: Ticket, type: TicketType): Ticket {
+  return { ...ticket, id: `${type}-${ticket.from}-${ticket.to}-${ticket.points}`, type };
 }
 
-function readLobbySnapshot(): BoardLobbySnapshot | null {
-  try {
-    const raw = localStorage.getItem(ACTIVE_LOBBY_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as BoardLobbySnapshot;
-  } catch {
-    return null;
+function shuffle<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
   }
-}
-
-function getStartingTicketsStorageKey(gameId?: string): string {
-  const snapshot = readLobbySnapshot();
-  return `${STARTING_TICKETS_STORAGE_PREFIX}_${gameId ?? snapshot?.gameId ?? "local"}`;
-}
-
-function readSavedStartingTickets(storageKey: string): Ticket[] | null {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as Ticket[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return null;
-
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function saveStartingTickets(storageKey: string, tickets: Ticket[]) {
-  localStorage.setItem(storageKey, JSON.stringify(tickets));
-}
-
-function clearStartingTickets(storageKey: string) {
-  localStorage.removeItem(storageKey);
-}
-
-function getPlayerDisplayName(player: LobbySnapshotPlayer, index: number): string {
-  return player.username ?? player.name ?? player.email ?? `Player ${index + 1}`;
-}
-
-function buildRawPlayersFromLobby(): Array<{
-  id: string;
-  name: string;
-  avatar: string;
-  color: PlayerColor;
-  isHuman: boolean;
-}> {
-  const snapshot = readLobbySnapshot();
-
-  const fallbackPlayers = [
-    { id: "p1", name: "You", avatar: "🚂", color: "red" as PlayerColor, isHuman: true },
-    { id: "p2", name: "Opponent", avatar: "🧑‍💻", color: "blue" as PlayerColor, isHuman: false },
-  ];
-
-  if (!snapshot?.players?.length) return fallbackPlayers;
-
-  const lobbyPlayers = [...snapshot.players].slice(0, 5);
-  const currentIndex = lobbyPlayers.findIndex((player) => {
-    const id = player.id ?? player.user_id;
-
-    return (
-      String(id) === String(snapshot.currentUserId) ||
-      getPlayerDisplayName(player, 0) === snapshot.currentUsername
-    );
-  });
-
-  if (currentIndex > 0) {
-    const [currentPlayer] = lobbyPlayers.splice(currentIndex, 1);
-    lobbyPlayers.unshift(currentPlayer);
-  }
-
-  return lobbyPlayers.map((player, index) => ({
-    id: String(player.id ?? player.user_id ?? `p${index + 1}`),
-    name: getPlayerDisplayName(player, index),
-    avatar: player.avatar ?? player.avatar_url ?? player.image ?? PLAYER_AVATARS[index] ?? "🚂",
-    color: PLAYER_COLOR_ORDER[index] ?? "red",
-    isHuman: index === 0,
-  }));
+  return copy;
 }
 
 function drawStartingTicketOffer(): StartingTicketOffer {
   const longTickets = shuffle(INITIAL_TICKETS.filter((ticket) => ticket.points >= 17)).map((ticket) =>
     withTicketMeta(ticket, "long"),
   );
-
   const shortTickets = shuffle(INITIAL_TICKETS.filter((ticket) => ticket.points < 17)).map((ticket) =>
     withTicketMeta(ticket, "short"),
   );
-
   const longTicket = longTickets[0] ?? withTicketMeta(shuffle(INITIAL_TICKETS)[0], "long");
   const offeredShortTickets = shortTickets.slice(0, 3);
-
-  return {
-    longTicket,
-    shortTickets: offeredShortTickets,
-    allTickets: [longTicket, ...offeredShortTickets],
-  };
+  return { longTicket, shortTickets: offeredShortTickets, allTickets: [longTicket, ...offeredShortTickets] };
 }
 
-function autoChooseStartingTickets(): Ticket[] {
-  const offer = drawStartingTicketOffer();
-  return [offer.longTicket, offer.shortTickets[0]].filter(Boolean);
+function readSavedStartingTickets(key: string): Ticket[] | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Ticket[];
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
-function createPlayers(
-  deckStart: CardColor[],
-  ticketDeckStart: Ticket[],
-): { players: Player[]; deck: CardColor[]; ticketDeck: Ticket[]; humanTicketOffer: StartingTicketOffer } {
-  let deck = [...deckStart];
-  const ticketDeck = [...ticketDeckStart];
-  const rawPlayers = buildRawPlayersFromLobby();
-  const humanTicketOffer = drawStartingTicketOffer();
+function saveStartingTickets(key: string, tickets: Ticket[]) {
+  localStorage.setItem(key, JSON.stringify(tickets));
+}
 
-  const players: Player[] = rawPlayers.map((player) => {
-    const hand = emptyHand();
+function clearStartingTickets(key: string) {
+  localStorage.removeItem(key);
+}
 
-    for (let i = 0; i < 4; i += 1) {
-      const next = drawOne(deck);
-      deck = next.deck;
-      if (next.card) hand[next.card] += 1;
+function pairKey(a: string, b: string): string {
+  return [a, b].sort().join("--");
+}
+
+function getTemplateRouteForPair(from: string, to: string, occurrence: number): TemplateRoute | undefined {
+  const matches = ROUTE_DEFS.filter((route) => pairKey(route.from, route.to) === pairKey(from, to));
+  return matches[occurrence] ?? matches[0];
+}
+
+function buildBoardRoutes(routes: GameRoute[]): { boardRoutes: BoardRoute[]; unknownRoutes: GameRoute[] } {
+  const occurrences = new Map<string, number>();
+  const boardRoutes: BoardRoute[] = [];
+  const unknownRoutes: GameRoute[] = [];
+
+  routes.forEach((route) => {
+    const from = resolveCityId(route.city_a);
+    const to = resolveCityId(route.city_b);
+
+    if (!from || !to) {
+      unknownRoutes.push(route);
+      return;
     }
 
-    return {
-      ...player,
-      colorHex: PLAYER_COLORS[player.color],
-      score: 0,
-      trains: 35,
-      hand,
-      tickets: player.isHuman ? [] : autoChooseStartingTickets(),
-      hasSelectedStartingTickets: !player.isHuman,
-    };
+    const key = pairKey(from, to);
+    const occurrence = occurrences.get(key) ?? 0;
+    occurrences.set(key, occurrence + 1);
+
+    const template = getTemplateRouteForPair(from, to, occurrence);
+    const automaticOffset = occurrence === 0 ? undefined : occurrence % 2 === 0 ? -0.55 : 0.55;
+
+    boardRoutes.push({
+      backendId: route.id,
+      from,
+      to,
+      color: template?.color ?? "gray",
+      length: route.length,
+      points: route.points ?? routePoints(route.length),
+      claimedByPlayerId: route.claimed_by_player_id,
+      offset: template?.offset ?? automaticOffset,
+      type: template?.type,
+      ferryLocos: template?.ferryLocos,
+      raw: route,
+    });
   });
 
-  return { players, deck, ticketDeck, humanTicketOffer };
+  return { boardRoutes, unknownRoutes };
 }
 
-function replaceMarketIfTooManyLocos(deckInput: CardColor[], marketInput: CardColor[]): { deck: CardColor[]; market: CardColor[] } {
-  const locomotives = marketInput.filter((card) => card === "wild").length;
-
-  if (locomotives < 3 || deckInput.length < 5) {
-    return { deck: deckInput, market: marketInput };
-  }
-
-  let deck = [...deckInput];
-  const market: CardColor[] = [];
-
-  while (market.length < 5 && deck.length > 0) {
-    const next = drawOne(deck);
-    deck = next.deck;
-    if (next.card) market.push(next.card);
-  }
-
-  return { deck, market };
-}
-
-function refillMarket(deckInput: CardColor[], marketInput: CardColor[]): { deck: CardColor[]; market: CardColor[] } {
-  let deck = [...deckInput];
-  const market = [...marketInput];
-
-  while (market.length < 5 && deck.length > 0) {
-    const next = drawOne(deck);
-    deck = next.deck;
-    if (next.card) market.push(next.card);
-  }
-
-  return replaceMarketIfTooManyLocos(deck, market);
-}
-
-function getClaimColor(route: Route, selectedColor: CardColor): CardColor {
-  if (route.color !== "gray") return route.color;
-  return selectedColor;
-}
-
-function canClaimRoute(player: Player, route: Route, selectedColor: CardColor): boolean {
-  if (route.ownerId) return false;
-  if (player.trains < route.length) return false;
-
-  const requiredLocos = route.type === "ferry" ? route.ferryLocos ?? 1 : 0;
-  const color = getClaimColor(route, selectedColor);
-
-  if (player.hand.wild < requiredLocos) return false;
-
-  if (color === "wild") {
-    return player.hand.wild >= route.length;
-  }
-
-  const nonLocoLength = route.length - requiredLocos;
-  const spareLocos = player.hand.wild - requiredLocos;
-  return player.hand[color] + spareLocos >= nonLocoLength;
-}
-
-function spendCards(
-  hand: Record<CardColor, number>,
-  selectedColor: CardColor,
-  routeLength: number,
-  requiredLocos: number,
-): Record<CardColor, number> {
-  const next = { ...hand };
-
-  if (selectedColor === "wild") {
-    next.wild -= routeLength;
-    return next;
-  }
-
-  const colorCardsToSpend = Math.min(next[selectedColor], routeLength - requiredLocos);
-  next[selectedColor] -= colorCardsToSpend;
-  next.wild -= requiredLocos + (routeLength - requiredLocos - colorCardsToSpend);
-
-  return next;
-}
-
-function handCount(hand: Record<CardColor, number>): number {
-  return Object.values(hand).reduce((sum, value) => sum + value, 0);
-}
-
-function hasConnection(player: Player, routes: Route[], from: CityId, to: CityId): boolean {
-  const graph = new Map<CityId, CityId[]>();
-
-  routes
-    .filter((route) => route.ownerId === player.id)
-    .forEach((route) => {
-      const fromNeighbours = graph.get(route.from) ?? [];
-      fromNeighbours.push(route.to);
-      graph.set(route.from, fromNeighbours);
-
-      const toNeighbours = graph.get(route.to) ?? [];
-      toNeighbours.push(route.from);
-      graph.set(route.to, toNeighbours);
-    });
-
-  const visited = new Set<CityId>();
-  const stack: CityId[] = [from];
-
-  while (stack.length) {
-    const current = stack.pop()!;
-    if (current === to) return true;
-    if (visited.has(current)) continue;
-
-    visited.add(current);
-    const neighbours = graph.get(current) ?? [];
-    neighbours.forEach((city) => {
-      if (!visited.has(city)) stack.push(city);
-    });
-  }
-
-  return false;
-}
-
-function completedTickets(player: Player, routes: Route[]): number {
-  return player.tickets.reduce((sum, ticket) => {
-    return sum + (hasConnection(player, routes, ticket.from, ticket.to) ? ticket.points : -ticket.points);
-  }, 0);
-}
-
-function routeGeometry(route: Route, cityById: Map<CityId, City>) {
+function routeGeometry(route: BoardRoute, cityById: Map<string, City>) {
   const from = cityById.get(route.from)!;
   const to = cityById.get(route.to)!;
   const dx = to.x - from.x;
@@ -777,16 +424,20 @@ function routeGeometry(route: Route, cityById: Map<CityId, City>) {
   const offset = route.offset ?? 0;
   const normalX = (-dy / length) * offset;
   const normalY = (dx / length) * offset;
-
   return {
     x1: from.x + normalX,
     y1: from.y + normalY,
     x2: to.x + normalX,
     y2: to.y + normalY,
-    dx,
-    dy,
     angle: (Math.atan2(dy, dx) * 180) / Math.PI,
   };
+}
+
+function getPlayerColor(playerId: string | null, game: GameState | null): string | null {
+  if (!playerId || !game) return null;
+  const index = game.players.findIndex((player) => player.id === playerId);
+  if (index < 0) return "#64748b";
+  return PLAYER_COLOR_HEX[index % PLAYER_COLOR_HEX.length];
 }
 
 function StartingTicketSelectionScreen({
@@ -794,727 +445,606 @@ function StartingTicketSelectionScreen({
   selectedTicketIds,
   onToggleTicket,
   onConfirm,
+  onResetSavedTickets,
 }: {
   offer: StartingTicketOffer;
   selectedTicketIds: string[];
   onToggleTicket: (ticket: Ticket) => void;
   onConfirm: () => void;
+  onResetSavedTickets: () => void;
 }) {
   const selectedShortCount = selectedTicketIds.filter((id) =>
     offer.shortTickets.some((ticket) => ticketId(ticket) === id),
   ).length;
-
-  const selectedTotal = offer.allTickets.filter((ticket) => selectedTicketIds.includes(ticketId(ticket))).length;
+  const selectedTickets = offer.allTickets.filter((ticket) => selectedTicketIds.includes(ticketId(ticket)));
+  const selectedTotal = selectedTickets.length;
+  const totalPotentialPoints = selectedTickets.reduce((sum, ticket) => sum + ticket.points, 0);
   const canConfirm = selectedShortCount >= 1;
 
   const renderTicket = (ticket: Ticket, locked = false) => {
     const selected = selectedTicketIds.includes(ticketId(ticket));
-
     return (
       <button
         key={ticketId(ticket)}
         type="button"
         disabled={locked}
         onClick={() => onToggleTicket(ticket)}
-        className={`rounded-3xl border-2 p-5 text-left shadow-xl transition ${
+        className={`group relative overflow-hidden rounded-[1.7rem] border-[3px] p-5 text-left shadow-xl transition ${
           selected
-            ? "border-emerald-400 bg-emerald-500/15 shadow-emerald-950/30"
-            : "border-white/10 bg-slate-950/75 hover:border-white/25"
-        } ${locked ? "cursor-not-allowed opacity-90" : "hover:-translate-y-0.5"}`}
+            ? "border-[#2f8f59] bg-[#fff7df] shadow-emerald-900/25"
+            : "border-[#b78545]/60 bg-[#ead2a2] hover:-translate-y-1 hover:border-[#8a5d2e]"
+        } ${locked ? "cursor-not-allowed" : ""}`}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">
-              {ticket.type === "long" ? "Long route" : "Short route"}
-            </p>
-            <h3 className="text-xl font-black text-white">
-              {cityName(ticket.from)} → {cityName(ticket.to)}
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              Keep this ticket hidden. If completed, you gain points. If failed, you lose them.
-            </p>
+        <div className="absolute inset-0 opacity-30 [background-image:radial-gradient(circle_at_15%_20%,#ffffff_0,transparent_20%),radial-gradient(circle_at_80%_10%,#8b5a2b_0,transparent_18%)]" />
+        <div className="relative">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-[0.22em] text-[#7c4a1f]">
+                {ticket.type === "long" ? "Long destination" : "Short destination"}
+              </p>
+              <h3 className="mt-2 text-2xl font-black leading-tight text-[#3f2415]">
+                {cityName(ticket.from)}
+                <span className="mx-2 text-[#b85f21]">→</span>
+                {cityName(ticket.to)}
+              </h3>
+            </div>
+            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-full border-[3px] border-[#6f421b] bg-gradient-to-br from-[#f9d26a] to-[#c27021] text-2xl font-black text-white shadow-lg">
+              {ticket.points}
+            </div>
           </div>
-
-          <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-white text-xl font-black text-slate-950">
-            {ticket.points}
+          <div className="mb-5 h-16 rounded-2xl border border-[#8b5a2b]/30 bg-[#d9b777]/45 p-3">
+            <div className="flex h-full items-center justify-between gap-1">
+              {Array.from({ length: Math.min(ticket.points > 16 ? 8 : 5, 8) }).map((_, index) => (
+                <span
+                  key={index}
+                  className={`h-8 flex-1 rounded-md border border-black/20 shadow-inner ${
+                    ticket.type === "long" ? "bg-gradient-to-b from-purple-300 to-purple-600" : "bg-gradient-to-b from-sky-300 to-sky-600"
+                  }`}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-
-        <div className="mt-5 flex items-center justify-between">
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-black ${
-              ticket.type === "long" ? "bg-purple-400/20 text-purple-200" : "bg-blue-400/20 text-blue-200"
-            }`}
-          >
-            {ticket.type === "long" ? "Required" : "Choose / discard"}
-          </span>
-
-          <span
-            className={`grid h-8 w-8 place-items-center rounded-full border text-sm font-black ${
-              selected ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-white/20 text-white/30"
-            }`}
-          >
-            ✓
-          </span>
+          <div className="flex items-center justify-between gap-3">
+            <span className={`rounded-full px-4 py-2 text-xs font-black ${ticket.type === "long" ? "bg-purple-800 text-purple-100" : "bg-sky-800 text-sky-100"}`}>
+              {locked ? "Automatically kept" : "Click to keep/discard"}
+            </span>
+            <span
+              className={`grid h-10 w-10 place-items-center rounded-full border-[3px] text-lg font-black shadow ${
+                selected ? "border-[#1f6f42] bg-[#2f8f59] text-white" : "border-[#8b5a2b]/40 bg-[#f4dfad] text-[#8b5a2b]/35"
+              }`}
+            >
+              ✓
+            </span>
+          </div>
         </div>
       </button>
     );
   };
 
   return (
-    <main className="min-h-screen bg-[#20262b] p-5 text-slate-50">
-      <div className="mx-auto max-w-6xl rounded-[2rem] border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-black/40">
-        <div className="flex flex-col gap-4 border-b border-white/10 pb-6 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-emerald-300">
-              Private setup phase
-            </p>
-            <h1 className="text-3xl font-black">Choose your destination tickets</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-              You got 1 random long route and 3 short routes. Long route stays with you. From short routes
-              you must keep at least 1, or you can keep all. Opponents do not see your choice.
-            </p>
-          </div>
-
-          <div className="rounded-3xl bg-white/10 px-5 py-4 text-center">
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">Selected</p>
-            <p className="mt-1 text-3xl font-black text-white">{selectedTotal}/4</p>
-          </div>
-        </div>
-
-        <section className="mt-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-xl font-black">Long route</h2>
-            <span className="rounded-full bg-purple-400/20 px-3 py-1 text-xs font-black text-purple-200">
-              Always kept
-            </span>
-          </div>
-          {renderTicket(offer.longTicket, true)}
-        </section>
-
-        <section className="mt-8">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-xl font-black">Short routes</h2>
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-black ${
-                canConfirm ? "bg-emerald-400/20 text-emerald-200" : "bg-red-400/20 text-red-200"
-              }`}
-            >
-              Select at least one
-            </span>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">{offer.shortTickets.map((ticket) => renderTicket(ticket))}</div>
-        </section>
-
-        <div className="mt-8 flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-950/75 p-5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="font-black text-white">Hidden information</p>
-            <p className="mt-1 text-sm leading-6 text-slate-400">
-              These tickets are stored only for your player. Other players should not see this panel.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            disabled={!canConfirm}
-            onClick={onConfirm}
-            className="rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 px-6 py-3 font-black text-white shadow-lg shadow-black/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
-          >
-            Confirm routes and open board
-          </button>
+    <main className="min-h-screen overflow-hidden bg-[#1e2529] p-4 text-[#3f2415] md:p-7">
+      <div className="pointer-events-none fixed inset-0 opacity-40 [background-image:radial-gradient(circle_at_20%_10%,#d8b26c_0,transparent_25%),radial-gradient(circle_at_80%_20%,#4f8e97_0,transparent_24%),radial-gradient(circle_at_50%_100%,#120b06_0,transparent_35%)]" />
+      <div className="relative mx-auto max-w-7xl rounded-[2.2rem] border-[6px] border-[#7a4a22] bg-[#dfc18a] p-3 shadow-2xl shadow-black/50">
+        <div className="rounded-[1.65rem] border-2 border-[#b9833f] bg-[#f1dfb8] p-5 md:p-7">
+          <header className="grid gap-5 border-b-2 border-[#b9833f]/40 pb-6 lg:grid-cols-[1fr_320px]">
+            <div>
+              <p className="mb-2 text-xs font-black uppercase tracking-[0.3em] text-[#9c5422]">Private route selection</p>
+              <h1 className="text-4xl font-black leading-tight md:text-5xl">Choose your hidden routes</h1>
+              <p className="mt-3 max-w-3xl text-base font-semibold leading-7 text-[#6f4b2a]">
+                You receive one random long destination and three short destinations. The long route stays with you.
+                Keep at least one short route, or keep all of them. Other players do not see this choice.
+              </p>
+            </div>
+            <aside className="rounded-[1.5rem] border-2 border-[#7a4a22]/35 bg-[#2d3b40] p-5 text-white shadow-xl">
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-amber-200">Current choice</p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-2xl bg-white/10 p-4 text-center"><p className="text-3xl font-black">{selectedTotal}</p><p className="text-xs font-bold text-white/60">tickets</p></div>
+                <div className="rounded-2xl bg-white/10 p-4 text-center"><p className="text-3xl font-black">{totalPotentialPoints}</p><p className="text-xs font-bold text-white/60">possible pts</p></div>
+              </div>
+              <div className="mt-4 rounded-2xl bg-black/20 p-3 text-sm font-semibold text-white/75">
+                Short routes selected: <span className="font-black text-white">{selectedShortCount}</span>/3
+              </div>
+            </aside>
+          </header>
+          <section className="mt-7 grid gap-6 xl:grid-cols-[360px_1fr]">
+            <div>
+              <div className="mb-3 flex items-center justify-between"><h2 className="text-2xl font-black">Long route</h2><span className="rounded-full bg-purple-900 px-3 py-1 text-xs font-black text-purple-100">required</span></div>
+              {renderTicket(offer.longTicket, true)}
+            </div>
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-2xl font-black">Short routes</h2>
+                <span className={`rounded-full px-3 py-1 text-xs font-black ${canConfirm ? "bg-emerald-800 text-emerald-100" : "bg-red-800 text-red-100"}`}>select at least one</span>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-3">{offer.shortTickets.map((ticket) => renderTicket(ticket))}</div>
+            </div>
+          </section>
+          <footer className="mt-7 flex flex-col gap-4 rounded-[1.5rem] border-2 border-[#8b5a2b]/30 bg-[#d3ab68]/45 p-5 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-lg font-black">Opponent cannot see this menu</p>
+              <p className="mt-1 max-w-2xl text-sm font-semibold leading-6 text-[#6f4b2a]">After confirmation the board opens immediately, and these selected tickets are stored locally for this player.</p>
+              <button type="button" onClick={onResetSavedTickets} className="mt-2 text-xs font-black uppercase tracking-[0.18em] text-[#8a5d2e] underline">Reset saved tickets for this game</button>
+            </div>
+            <button type="button" disabled={!canConfirm} onClick={onConfirm} className="rounded-2xl bg-gradient-to-br from-[#2f8f59] to-[#0f766e] px-7 py-4 text-lg font-black text-white shadow-xl shadow-black/25 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:from-slate-400 disabled:to-slate-500 disabled:hover:translate-y-0">
+              Confirm routes and open board
+            </button>
+          </footer>
         </div>
       </div>
     </main>
   );
 }
 
-function TrainCard({ card }: { card: CardColor }) {
+function EuropeBoardMap({
+  game,
+  boardRoutes,
+  selectedRouteId,
+  onSelectRoute,
+}: {
+  game: GameState | null;
+  boardRoutes: BoardRoute[];
+  selectedRouteId: number | null;
+  onSelectRoute: (routeId: number) => void;
+}) {
+  const cityById = useMemo(() => new Map(CITIES.map((city) => [city.id, city])), []);
+
   return (
-    <div className={`rounded-2xl bg-gradient-to-br p-3 text-center text-sm font-black shadow-lg ring-2 ${CARD_META[card].className}`}>
-      <div className="text-2xl leading-none">{CARD_META[card].symbol}</div>
-      <div className="mt-1">{CARD_META[card].label}</div>
-    </div>
+    <svg viewBox="0 0 100 75" className="min-h-[640px] w-full min-w-[900px] rounded-[1.5rem] bg-[#b9d7e4]">
+      <defs>
+        <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="0.65" stdDeviation="0.65" floodOpacity="0.38" /></filter>
+        <filter id="softMapShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="0.45" stdDeviation="0.45" floodColor="#4d321c" floodOpacity="0.32" /></filter>
+        <linearGradient id="water" x1="0%" x2="100%" y1="0%" y2="100%"><stop offset="0%" stopColor="#d8eff7" /><stop offset="52%" stopColor="#b9d7e4" /><stop offset="100%" stopColor="#8bb6c5" /></linearGradient>
+        <linearGradient id="land" x1="0%" x2="100%" y1="0%" y2="100%"><stop offset="0%" stopColor="#f2d9a5" /><stop offset="45%" stopColor="#dec083" /><stop offset="100%" stopColor="#c99d5d" /></linearGradient>
+        <pattern id="paperTexture" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="5" height="5" fill="transparent" /><circle cx="1" cy="1" r="0.18" fill="#704821" opacity="0.14" /><circle cx="4" cy="2.8" r="0.14" fill="#ffffff" opacity="0.18" /><path d="M0 4 L5 3.4" stroke="#704821" strokeWidth="0.05" opacity="0.14" /></pattern>
+      </defs>
+
+      <rect x="0" y="0" width="100" height="75" fill="url(#water)" />
+      <rect x="0" y="0" width="100" height="75" fill="url(#paperTexture)" opacity="0.75" />
+      <rect x="1.1" y="1.1" width="97.8" height="72.8" rx="2.2" fill="none" stroke="#6a4524" strokeWidth="1.3" />
+      <rect x="2.35" y="2.35" width="95.3" height="70.3" rx="1.4" fill="none" stroke="#e4c077" strokeWidth="0.55" />
+
+      {Array.from({ length: 31 }).map((_, index) => {
+        const x = 5 + index * 3;
+        return <g key={`score-top-${index}`}><circle cx={x} cy="3.1" r="1.25" fill="#0f6179" stroke="#f2d39a" strokeWidth="0.35" /><text x={x} y="3.48" textAnchor="middle" fontSize="0.95" fontWeight="900" fill="#ffffff">{index}</text></g>;
+      })}
+      {Array.from({ length: 20 }).map((_, index) => {
+        const y = 7 + index * 3.05;
+        return <g key={`score-right-${index}`}><circle cx="96.9" cy={y} r="1.25" fill="#0f6179" stroke="#f2d39a" strokeWidth="0.35" /><text x="96.9" y={y + 0.36} textAnchor="middle" fontSize="0.9" fontWeight="900" fill="#ffffff">{31 + index}</text></g>;
+      })}
+      {Array.from({ length: 31 }).map((_, index) => {
+        const x = 95 - index * 3;
+        return <g key={`score-bottom-${index}`}><circle cx={x} cy="71.9" r="1.25" fill="#0f6179" stroke="#f2d39a" strokeWidth="0.35" /><text x={x} y="72.25" textAnchor="middle" fontSize="0.9" fontWeight="900" fill="#ffffff">{50 + index}</text></g>;
+      })}
+      {Array.from({ length: 19 }).map((_, index) => {
+        const y = 65 - index * 3.05;
+        return <g key={`score-left-${index}`}><circle cx="3.1" cy={y} r="1.25" fill="#0f6179" stroke="#f2d39a" strokeWidth="0.35" /><text x="3.1" y={y + 0.34} textAnchor="middle" fontSize="0.9" fontWeight="900" fill="#ffffff">{81 + index}</text></g>;
+      })}
+
+      <g filter="url(#softMapShadow)">
+        <path d="M16 20 C23 13, 33 11, 43 16 C51 20, 58 18, 66 16 C78 13, 92 19, 95 32 C98 45, 91 58, 81 62 C69 67, 59 61, 49 62 C37 63, 25 68, 13 61 C5 56, 8 43, 12 35 C14 30, 11 25, 16 20 Z" fill="url(#land)" stroke="#8a6a45" strokeWidth="0.55" />
+        <path d="M8 9 C14 6, 19 8, 20 14 C21 21, 16 27, 10 25 C5 22, 4 13, 8 9 Z" fill="url(#land)" stroke="#8a6a45" strokeWidth="0.45" />
+        <path d="M7 31 C13 29, 18 33, 20 40 C22 48, 18 59, 10 62 C4 58, 4 47, 6 39 C7 36, 5 33, 7 31 Z" fill="url(#land)" stroke="#8a6a45" strokeWidth="0.45" />
+        <path d="M43 53 C47 52, 50 56, 50 62 C50 67, 45 70, 41 67 C38 63, 39 56, 43 53 Z" fill="url(#land)" stroke="#8a6a45" strokeWidth="0.45" />
+        <path d="M52 52 C59 52, 65 56, 67 63 C61 67, 54 66, 50 61 C47 57, 48 53, 52 52 Z" fill="url(#land)" stroke="#8a6a45" strokeWidth="0.45" />
+        <path d="M78 53 C86 52, 93 57, 96 66 C88 70, 80 68, 73 63 C70 58, 72 54, 78 53 Z" fill="url(#land)" stroke="#8a6a45" strokeWidth="0.45" />
+      </g>
+      <g opacity="0.34" fontSize="3.2" fill="#5e3b1e"><text x="18" y="18">⚓</text><text x="35" y="43">⛰</text><text x="72" y="24">♜</text><text x="77" y="57">⚓</text><text x="26" y="66">⚓</text></g>
+
+      {boardRoutes.map((route) => {
+        const meta = ROUTE_META[route.color];
+        const geometry = routeGeometry(route, cityById);
+        const selected = selectedRouteId === route.backendId;
+        const ownerColor = getPlayerColor(route.claimedByPlayerId, game);
+        const fill = ownerColor ?? meta.fill;
+        const stroke = ownerColor ? "#fff7ed" : meta.stroke;
+
+        return (
+          <g key={route.backendId} className="cursor-pointer" onClick={() => onSelectRoute(route.backendId)}>
+            <line x1={geometry.x1} y1={geometry.y1} x2={geometry.x2} y2={geometry.y2} stroke={selected ? "#10b981" : "rgba(74,45,20,0.34)"} strokeWidth={selected ? 1.45 : 0.9} strokeLinecap="round" />
+            {Array.from({ length: route.length }).map((_, index) => {
+              const t = (index + 1) / (route.length + 1);
+              const x = geometry.x1 + (geometry.x2 - geometry.x1) * t;
+              const y = geometry.y1 + (geometry.y2 - geometry.y1) * t;
+              return (
+                <g key={`${route.backendId}-${index}`} transform={`translate(${x} ${y}) rotate(${geometry.angle})`}>
+                  <rect x="-1.45" y="-0.82" width="2.9" height="1.64" rx="0.42" fill={fill} stroke={stroke} strokeWidth={selected ? 0.42 : 0.24} filter="url(#shadow)" />
+                  <rect x="-1.05" y="-0.48" width="2.1" height="0.28" rx="0.1" fill="#ffffff" opacity="0.18" />
+                  <circle cx="-0.72" cy="0.53" r="0.16" fill="rgba(0,0,0,0.22)" />
+                  <circle cx="0.72" cy="0.53" r="0.16" fill="rgba(0,0,0,0.22)" />
+                  {route.claimedByPlayerId && <text x="0" y="0.31" textAnchor="middle" fontSize="0.95" fontWeight="900" fill="#ffffff">✓</text>}
+                </g>
+              );
+            })}
+          </g>
+        );
+      })}
+
+      {CITIES.map((city) => (
+        <g key={city.id}>
+          <circle cx={city.x} cy={city.y} r="1.85" fill="#7c2d12" stroke="#fff1b8" strokeWidth="0.55" filter="url(#shadow)" />
+          <circle cx={city.x} cy={city.y} r="1.18" fill="#f59e0b" stroke="#a33d12" strokeWidth="0.35" />
+          <circle cx={city.x} cy={city.y} r="0.46" fill="#fff7ed" opacity="0.95" />
+          <text x={city.x + (city.labelDx ?? 1)} y={city.y + (city.labelDy ?? -0.8)} textAnchor={city.labelAnchor ?? "start"} fontSize="1.55" fontWeight="900" fill="#4a2512" stroke="#f6dfb2" strokeWidth="0.28" paintOrder="stroke">
+            {city.name}
+          </text>
+        </g>
+      ))}
+    </svg>
   );
 }
 
-export default function GameBoard() {
-  const { gameId } = useParams<{ gameId?: string }>();
-  const startingTicketsStorageKey = useMemo(() => getStartingTicketsStorageKey(gameId), [gameId]);
-  const savedStartingTickets = useMemo(
-    () => readSavedStartingTickets(startingTicketsStorageKey),
-    [startingTicketsStorageKey],
-  );
+export default function GameRoomPage() {
+  const { gameId } = useParams();
+  const navigate = useNavigate();
+  const [game, setGame] = useState<GameState | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
+  const [error, setError] = useState("");
+  const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [connectedPeers, setConnectedPeers] = useState<number>(0);
+  const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  const [selectedTickets, setSelectedTickets] = useState<Ticket[]>([]);
+  const socketRef = useRef<ReturnType<typeof connectGameSocket> | null>(null);
+  const pendingActionRef = useRef<"start" | "claim" | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const shouldReconnectRef = useRef(true);
 
-  const initialDeck = useMemo(() => makeDeck(), []);
-  const initialTicketDeck = useMemo(() => shuffle(INITIAL_TICKETS), []);
-  const prepared = useMemo(() => createPlayers(initialDeck, initialTicketDeck), [initialDeck, initialTicketDeck]);
-  const preparedMarket = useMemo(() => refillMarket(prepared.deck, []), [prepared.deck]);
+  const token = useMemo(() => (gameId ? localStorage.getItem(playerTokenKey(gameId)) ?? "" : ""), [gameId]);
+  const playerId = useMemo(() => (gameId ? localStorage.getItem(playerIdKey(gameId)) ?? "" : ""), [gameId]);
+  const storageKey = useMemo(() => (gameId ? startingTicketsKey(gameId) : "ttr_selected_starting_tickets_local"), [gameId]);
+  const ticketOffer = useMemo(() => drawStartingTicketOffer(), [gameId]);
+  const isMyTurn = Boolean(game?.current_player_id && playerId && game.current_player_id === playerId);
 
-  const [players, setPlayers] = useState<Player[]>(() =>
-    prepared.players.map((player, index) =>
-      index === 0 && savedStartingTickets
-        ? {
-            ...player,
-            tickets: savedStartingTickets,
-            hasSelectedStartingTickets: true,
-          }
-        : player,
-    ),
-  );
-  const [routes, setRoutes] = useState<Route[]>(INITIAL_ROUTES);
-  const [deck, setDeck] = useState<CardColor[]>(preparedMarket.deck);
-  const [market, setMarket] = useState<CardColor[]>(preparedMarket.market);
-  const [ticketDeck, setTicketDeck] = useState<Ticket[]>(prepared.ticketDeck);
-  const [activePlayerIndex, setActivePlayerIndex] = useState(0);
-  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-  const [selectedColor, setSelectedColor] = useState<CardColor>("red");
-  const [cardsDrawnThisTurn, setCardsDrawnThisTurn] = useState(0);
-  const [log, setLog] = useState<LogItem[]>([
-    {
-      id: Date.now(),
-      text: "Game started. Choose your hidden destination tickets.",
-    },
-  ]);
+  const { boardRoutes, unknownRoutes } = useMemo(() => buildBoardRoutes(game?.routes ?? []), [game?.routes]);
+  const selectedRoute = useMemo(() => boardRoutes.find((route) => route.backendId === selectedRouteId) ?? null, [boardRoutes, selectedRouteId]);
+  const selectedRouteIsClaimed = Boolean(selectedRoute?.claimedByPlayerId);
+  const canClaimSelectedRoute = Boolean(selectedRoute && !selectedRoute.claimedByPlayerId && isMyTurn && game?.status !== "waiting");
 
-  const [startingTicketOffer, setStartingTicketOffer] = useState<StartingTicketOffer>(prepared.humanTicketOffer);
-  const [showStartingTicketSelection, setShowStartingTicketSelection] = useState(!savedStartingTickets);
-  const [selectedStartingTicketIds, setSelectedStartingTicketIds] = useState<string[]>([
-    ticketId(prepared.humanTicketOffer.longTicket),
-    ticketId(prepared.humanTicketOffer.shortTickets[0]),
-  ]);
+  const reloadGameState = useCallback(async () => {
+    if (!gameId) return;
+    const state = await getGameState(gameId);
+    setGame(state);
+    setError("");
+  }, [gameId]);
 
-  const activePlayer = players[activePlayerIndex];
-  const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
-  const cityById = useMemo(() => new Map(CITIES.map((city) => [city.id, city])), []);
-  const currentCanClaim = selectedRoute ? canClaimRoute(activePlayer, selectedRoute, selectedColor) : false;
+  useEffect(() => {
+    const saved = readSavedStartingTickets(storageKey);
+    setSelectedTickets(saved ?? []);
+    setSelectedTicketIds([ticketId(ticketOffer.longTicket), ticketId(ticketOffer.shortTickets[0])]);
+  }, [storageKey, ticketOffer]);
 
-  const rankedPlayers = [...players].sort((a, b) => {
-    const aScore = a.score + completedTickets(a, routes);
-    const bScore = b.score + completedTickets(b, routes);
-    return bScore - aScore;
-  });
-
-  function addLog(text: string) {
-    setLog((items) => [{ id: Date.now() + Math.random(), text }, ...items].slice(0, 12));
-  }
-
-  function nextTurn() {
-    setCardsDrawnThisTurn(0);
-    setActivePlayerIndex((index) => (index + 1) % players.length);
-  }
-
-  function addCardToActivePlayer(card: CardColor) {
-    setPlayers((currentPlayers) =>
-      currentPlayers.map((player, index) =>
-        index === activePlayerIndex ? { ...player, hand: { ...player.hand, [card]: player.hand[card] + 1 } } : player,
-      ),
-    );
-  }
-
-  function drawBlindCard() {
-    if (cardsDrawnThisTurn >= 2) return;
-
-    if (deck.length === 0) {
-      addLog("Deck is empty.");
+  useEffect(() => {
+    if (!gameId) {
+      navigate("/lobby");
+      return;
+    }
+    if (!getAuthToken()) {
+      navigate("/login");
+      return;
+    }
+    if (!token) {
+      setError("Missing game token. Join or create the game from lobby again.");
+      setConnectionStatus("error");
       return;
     }
 
-    const next = drawOne(deck);
-    if (!next.card) return;
-
-    setDeck(next.deck);
-    addCardToActivePlayer(next.card);
-
-    const newDrawCount = cardsDrawnThisTurn + 1;
-    setCardsDrawnThisTurn(newDrawCount);
-    addLog(`${activePlayer.name} drew a blind train card.`);
-
-    if (newDrawCount >= 2) nextTurn();
-  }
-
-  function drawMarketCard(index: number) {
-    if (cardsDrawnThisTurn >= 2) return;
-
-    const card = market[index];
-    if (!card) return;
-
-    if (card === "wild" && cardsDrawnThisTurn > 0) {
-      addLog("You can take a locomotive only as the first card of your turn.");
-      return;
-    }
-
-    addCardToActivePlayer(card);
-
-    const remainingMarket = market.filter((_, itemIndex) => itemIndex !== index);
-    const refilled = refillMarket(deck, remainingMarket);
-    setDeck(refilled.deck);
-    setMarket(refilled.market);
-
-    addLog(`${activePlayer.name} took ${CARD_META[card].label} from market.`);
-
-    if (card === "wild") {
-      nextTurn();
-      return;
-    }
-
-    const newDrawCount = cardsDrawnThisTurn + 1;
-    setCardsDrawnThisTurn(newDrawCount);
-
-    if (newDrawCount >= 2) nextTurn();
-  }
-
-  function claimSelectedRoute() {
-    if (!selectedRoute) {
-      addLog("Select a route first.");
-      return;
-    }
-
-    if (selectedRoute.ownerId) {
-      addLog("This route has already been claimed.");
-      return;
-    }
-
-    if (!currentCanClaim) {
-      addLog(`${activePlayer.name} does not have enough cards or trains for this route.`);
-      return;
-    }
-
-    const claimColor = getClaimColor(selectedRoute, selectedColor);
-    const requiredLocos = selectedRoute.type === "ferry" ? selectedRoute.ferryLocos ?? 1 : 0;
-
-    setRoutes((currentRoutes) =>
-      currentRoutes.map((route) => (route.id === selectedRoute.id ? { ...route, ownerId: activePlayer.id } : route)),
-    );
-
-    setPlayers((currentPlayers) =>
-      currentPlayers.map((player, index) =>
-        index === activePlayerIndex
-          ? {
-              ...player,
-              score: player.score + selectedRoute.points,
-              trains: player.trains - selectedRoute.length,
-              hand: spendCards(player.hand, claimColor, selectedRoute.length, requiredLocos),
-            }
-          : player,
-      ),
-    );
-
-    addLog(`${activePlayer.name} claimed ${cityName(selectedRoute.from)} → ${cityName(selectedRoute.to)}.`);
-    setSelectedRouteId(null);
-    nextTurn();
-  }
-
-  function toggleStartingTicket(ticket: Ticket) {
-    if (ticket.type === "long") return;
-
-    const id = ticketId(ticket);
-
-    setSelectedStartingTicketIds((current) => {
-      if (current.includes(id)) {
-        return current.filter((ticketIdValue) => ticketIdValue !== id);
+    let alive = true;
+    const clearReconnectTimer = () => {
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
       }
+    };
 
-      return [...current, id];
-    });
-  }
+    const loadState = async () => {
+      try {
+        const state = await getGameState(gameId);
+        if (alive) {
+          setGame(state);
+          setError("");
+        }
+      } catch (err) {
+        if (alive) setError(err instanceof Error ? err.message : "Failed to load game state");
+      }
+    };
 
-  function confirmStartingTickets() {
-    const selectedTickets = startingTicketOffer.allTickets.filter((ticket) =>
-      selectedStartingTicketIds.includes(ticketId(ticket)),
-    );
+    const connectSocket = () => {
+      clearReconnectTimer();
+      shouldReconnectRef.current = true;
+      setConnectionStatus("connecting");
+      socketRef.current = connectGameSocket(gameId, token, {
+        onOpen: () => {
+          if (!alive) return;
+          setConnectionStatus("connected");
+          setError("");
+          reconnectAttemptsRef.current = 0;
+          void socketRef.current?.requestState();
+        },
+        onClose: (event) => {
+          if (!alive) return;
+          const wasIntentional = !shouldReconnectRef.current;
+          if (!wasIntentional) {
+            const closeReason = event.reason ? `${event.code}: ${event.reason}` : `code ${event.code}`;
+            setConnectionStatus("closed");
+            setError(`WS closed (${closeReason}). Reconnecting...`);
+            if (reconnectAttemptsRef.current < 5) {
+              reconnectAttemptsRef.current += 1;
+              const delay = Math.min(5000, reconnectAttemptsRef.current * 1000);
+              reconnectTimerRef.current = window.setTimeout(connectSocket, delay);
+            }
+          }
+        },
+        onError: (message) => {
+          if (alive) {
+            setConnectionStatus("error");
+            setError(message);
+          }
+        },
+        onMessage: (event: GameSocketEvent) => {
+          if (!alive) return;
+          if (event.type === "game_state") {
+            setGame(event.payload as GameState);
+            setError("");
+            if (pendingActionRef.current) {
+              pendingActionRef.current = null;
+              setSelectedRouteId(null);
+              setActionLoading(false);
+            }
+          }
+          if (event.type === "presence") {
+            const connected = Number((event.payload as { connected?: number } | undefined)?.connected ?? 0);
+            setConnectedPeers(Number.isFinite(connected) ? connected : 0);
+          }
+          if (event.type === "error") {
+            const detail = (event.payload as { detail?: string } | undefined)?.detail;
+            setError(detail || "WebSocket action failed");
+            pendingActionRef.current = null;
+            setActionLoading(false);
+          }
+        },
+      });
+    };
 
-    const selectedShortCount = selectedTickets.filter((ticket) => ticket.type === "short").length;
+    void loadState();
+    connectSocket();
 
-    if (selectedShortCount < 1) {
-      addLog("You must keep at least one short destination ticket.");
+    return () => {
+      alive = false;
+      shouldReconnectRef.current = false;
+      clearReconnectTimer();
+      socketRef.current?.close();
+      socketRef.current = null;
+    };
+  }, [gameId, navigate, token]);
+
+  const handleStart = async () => {
+    if (!gameId || !token) return;
+    setActionLoading(true);
+    setError("");
+    const socket = socketRef.current;
+    const usingSocket = socket?.socket.readyState === WebSocket.OPEN;
+    try {
+      if (usingSocket) {
+        pendingActionRef.current = "start";
+        socket.startGame(token);
+      } else {
+        await startGame(gameId, { host_token: token });
+        await reloadGameState();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start game");
+      pendingActionRef.current = null;
+    } finally {
+      if (!usingSocket) setActionLoading(false);
+    }
+  };
+
+  const handleClaim = async (routeId: number) => {
+    if (!gameId || !token) return;
+    setActionLoading(true);
+    setError("");
+    const socket = socketRef.current;
+    const usingSocket = socket?.socket.readyState === WebSocket.OPEN;
+    try {
+      if (usingSocket) {
+        pendingActionRef.current = "claim";
+        socket.claimRoute(token, routeId);
+      } else {
+        await claimRoute(gameId, { player_token: token, route_id: routeId });
+        setSelectedRouteId(null);
+        await reloadGameState();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to claim route");
+      pendingActionRef.current = null;
+    } finally {
+      if (!usingSocket) setActionLoading(false);
+    }
+  };
+
+  const toggleStartingTicket = (ticket: Ticket) => {
+    if (ticket.type === "long") return;
+    const id = ticketId(ticket);
+    setSelectedTicketIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  };
+
+  const resetSavedTickets = () => {
+    clearStartingTickets(storageKey);
+    setSelectedTickets([]);
+    setSelectedTicketIds([ticketId(ticketOffer.longTicket), ticketId(ticketOffer.shortTickets[0])]);
+  };
+
+  const confirmStartingTickets = () => {
+    const tickets = ticketOffer.allTickets.filter((ticket) => selectedTicketIds.includes(ticketId(ticket)));
+    const shortCount = tickets.filter((ticket) => ticket.type === "short").length;
+    if (shortCount < 1) {
+      setError("You must keep at least one short destination ticket.");
       return;
     }
-
-    saveStartingTickets(startingTicketsStorageKey, selectedTickets);
-
-    setPlayers((currentPlayers) =>
-      currentPlayers.map((player, index) =>
-        index === 0
-          ? {
-              ...player,
-              tickets: selectedTickets,
-              hasSelectedStartingTickets: true,
-            }
-          : player,
-      ),
-    );
-
-    setActivePlayerIndex(0);
-    setCardsDrawnThisTurn(0);
-    setShowStartingTicketSelection(false);
+    saveStartingTickets(storageKey, tickets);
+    setSelectedTickets(tickets);
+    setError("");
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
-    addLog(`${players[0].name} kept ${selectedTickets.length} hidden destination tickets. The board is now open.`);
-  }
+  };
 
-  function resetGame() {
-    clearStartingTickets(startingTicketsStorageKey);
-    const newDeck = makeDeck();
-    const newTicketDeck = shuffle(INITIAL_TICKETS);
-    const newPrepared = createPlayers(newDeck, newTicketDeck);
-    const newMarket = refillMarket(newPrepared.deck, []);
+  if (!gameId) return null;
 
-    setPlayers(newPrepared.players);
-    setRoutes(INITIAL_ROUTES);
-    setDeck(newMarket.deck);
-    setMarket(newMarket.market);
-    setTicketDeck(newPrepared.ticketDeck);
-    setActivePlayerIndex(0);
-    setSelectedRouteId(null);
-    setSelectedColor("red");
-    setCardsDrawnThisTurn(0);
-    setStartingTicketOffer(newPrepared.humanTicketOffer);
-    setSelectedStartingTicketIds([
-      ticketId(newPrepared.humanTicketOffer.longTicket),
-      ticketId(newPrepared.humanTicketOffer.shortTickets[0]),
-    ]);
-    setShowStartingTicketSelection(true);
-    setLog([{ id: Date.now(), text: "New game started. Choose your hidden destination tickets." }]);
-  }
+  const shouldShowTicketSelection = Boolean(game && game.status !== "waiting" && selectedTickets.length === 0);
 
-  if (showStartingTicketSelection) {
+  if (shouldShowTicketSelection) {
     return (
       <StartingTicketSelectionScreen
-        offer={startingTicketOffer}
-        selectedTicketIds={selectedStartingTicketIds}
+        offer={ticketOffer}
+        selectedTicketIds={selectedTicketIds}
         onToggleTicket={toggleStartingTicket}
         onConfirm={confirmStartingTickets}
+        onResetSavedTickets={resetSavedTickets}
       />
     );
   }
 
   return (
     <main className="min-h-screen bg-[#20262b] p-3 text-slate-50 md:p-5">
-      <div className="grid min-h-[calc(100vh-40px)] grid-cols-1 gap-4 xl:grid-cols-[240px_minmax(780px,1fr)_350px]">
-        <aside className="min-w-0">
-          <div className="mb-4 flex items-center justify-between gap-4 rounded-3xl border border-white/10 bg-gradient-to-br from-red-500 to-orange-500 p-5 shadow-2xl shadow-black/30">
-            <div>
-              <p className="mb-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/75">Ticket Online</p>
-              <h1 className="text-2xl font-black leading-tight">Ticket to Ride Europe</h1>
-              <p className="mt-1 text-xs uppercase tracking-[0.22em] text-white/50">Lobby players + hidden tickets</p>
+      <div className="grid min-h-[calc(100vh-40px)] grid-cols-1 gap-4 xl:grid-cols-[260px_minmax(780px,1fr)_360px]">
+        <aside className="min-w-0 space-y-4">
+          <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-red-500 to-orange-500 p-5 shadow-2xl shadow-black/30">
+            <p className="mb-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/75">Online game room</p>
+            <h1 className="text-2xl font-black leading-tight">{game?.name ?? `Game ${gameId}`}</h1>
+            <p className="mt-1 text-xs uppercase tracking-[0.22em] text-white/60">Ticket to Ride Europe</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => navigate("/lobby")}>Lobby</Button>
+              {game?.status === "waiting" && <Button variant="primary" onClick={handleStart} disabled={actionLoading}>Start game</Button>}
             </div>
-            <button
-              type="button"
-              onClick={resetGame}
-              className="rounded-full bg-white/20 px-4 py-2 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-white/30"
-            >
-              Reset
-            </button>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-            {players.map((player, index) => {
-              const ticketPoints = completedTickets(player, routes);
-              const totalScore = player.score + ticketPoints;
-
-              return (
-                <button
-                  key={player.id}
-                  type="button"
-                  onClick={() => setActivePlayerIndex(index)}
-                  className={`rounded-3xl border p-4 text-left shadow-2xl shadow-black/30 backdrop-blur-xl transition hover:-translate-y-0.5 ${
-                    index === activePlayerIndex
-                      ? "border-white/25 bg-slate-800/95 ring-2 ring-white/15"
-                      : "border-white/10 bg-slate-950/75 hover:bg-slate-800/90"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="grid h-12 w-12 place-items-center rounded-full border-[3px] bg-white text-2xl shadow-lg"
-                      style={{ borderColor: player.colorHex }}
-                    >
-                      {player.avatar}
-                    </span>
-                    <div className="min-w-0">
-                      <strong className="block truncate text-base font-black text-slate-50">{player.name}</strong>
-                      <span className="text-sm font-semibold text-slate-400">{player.isHuman ? "You" : "Opponent"}</span>
+          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Players</h2>
+            <div className="space-y-2">
+              {(game?.players ?? []).map((player, index) => {
+                const active = game?.current_player_id === player.id;
+                const mine = player.id === playerId;
+                return (
+                  <div key={player.id} className={`rounded-2xl border p-3 ${active ? "border-emerald-400/60 bg-emerald-400/10" : "border-white/10 bg-white/5"}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="grid h-10 w-10 place-items-center rounded-full border-2 bg-white text-sm font-black" style={{ borderColor: PLAYER_COLOR_HEX[index % PLAYER_COLOR_HEX.length], color: PLAYER_COLOR_HEX[index % PLAYER_COLOR_HEX.length] }}>{player.name.slice(0, 2).toUpperCase()}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-black">{player.name}</p>
+                        <p className="text-xs text-slate-400">{player.score} pts · {player.train_cars_left} trains</p>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-[0.16em]">
+                      {active && <span className="rounded-full bg-emerald-400/20 px-2 py-1 text-emerald-200">Current</span>}
+                      {mine && <span className="rounded-full bg-cyan-400/20 px-2 py-1 text-cyan-200">You</span>}
                     </div>
                   </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-sm font-bold text-slate-400">
-                    <span className="col-span-2 text-2xl font-light text-slate-50">{totalScore.toLocaleString()} pts</span>
-                    <span>{player.trains} trains</span>
-                    <span>{handCount(player.hand)} cards</span>
-                    <span className="col-span-2 text-xs text-slate-500">
-                      routes {player.score} + tickets {ticketPoints}
-                    </span>
-                    <span className="col-span-2 text-xs text-emerald-300">
-                      {player.isHuman ? `${player.tickets.length} hidden tickets` : "Tickets hidden"}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <section className="mt-4 rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
-            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Leaderboard</h2>
-            <div className="space-y-2">
-              {rankedPlayers.map((player, index) => (
-                <div key={player.id} className="flex items-center justify-between rounded-2xl bg-white/5 px-3 py-2">
-                  <span className="font-bold">
-                    {index + 1}. {player.name}
-                  </span>
-                  <span className="font-black">{player.score + completedTickets(player, routes)}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
+          </section>
+
+          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Connection</h2>
+            <div className="space-y-2 text-sm font-semibold text-slate-300">
+              <p>WS: <span className="font-black text-white">{connectionStatus}</span></p>
+              <p>Connected peers: <span className="font-black text-white">{connectedPeers}</span></p>
+              <p>Status: <span className="font-black text-white">{game?.status ?? "loading"}</span></p>
+              <p>{isMyTurn ? "Your turn" : "Waiting for other player"}</p>
+            </div>
+            <Button variant="secondary" onClick={() => socketRef.current?.requestState()} className="mt-4 w-full">Refresh via WS</Button>
           </section>
         </aside>
 
-        <section className="min-w-0 overflow-hidden rounded-[2rem] border border-white/10 bg-[#d8e5d2] shadow-2xl shadow-black/40">
-          <div className="flex items-center justify-between border-b border-black/10 bg-white/40 px-5 py-4 text-slate-900">
+        <section className="min-w-0 overflow-hidden rounded-[2rem] border-[5px] border-[#7a4a22] bg-[#d6b06f] shadow-2xl shadow-black/50">
+          <div className="flex flex-col gap-3 border-b border-[#7a4a22]/35 bg-[#f1dfb8]/85 px-5 py-4 text-[#3f2415] md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-xl font-black">Europe Board</h2>
-              <p className="text-sm font-semibold text-slate-600">
-                Active player: <span className="font-black">{activePlayer.name}</span>
+              <p className="text-sm font-semibold text-[#6f4b2a]">
+                {game?.status === "waiting" ? "Waiting room: start the game first." : "Click a free route on the map, then claim it on your turn."}
               </p>
             </div>
-            <div className="rounded-full bg-slate-900 px-4 py-2 text-sm font-black text-white">
-              {deck.length} cards in deck
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full bg-[#2d3b40] px-4 py-2 text-sm font-black text-white">{boardRoutes.length} mapped routes</span>
+              {unknownRoutes.length > 0 && <span className="rounded-full bg-red-900 px-4 py-2 text-sm font-black text-white">{unknownRoutes.length} unmapped</span>}
             </div>
           </div>
-
+          {error ? <p className="m-4 rounded-2xl bg-red-500/15 px-4 py-3 text-sm text-red-100">{error}</p> : null}
+          {!token ? <p className="m-4 rounded-2xl bg-amber-500/15 px-4 py-3 text-sm text-amber-100">No player token found for this lobby.</p> : null}
           <div className="overflow-auto p-2">
-            <svg viewBox="0 0 100 75" className="min-h-[620px] w-full min-w-[820px] rounded-[1.5rem] bg-[#cfe1c5]">
-              <defs>
-                <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="0.7" stdDeviation="0.7" floodOpacity="0.35" />
-                </filter>
-                <linearGradient id="water" x1="0%" x2="100%" y1="0%" y2="100%">
-                  <stop offset="0%" stopColor="#d9f0ff" />
-                  <stop offset="100%" stopColor="#9fd0ec" />
-                </linearGradient>
-              </defs>
-
-              <rect x="0" y="0" width="100" height="75" fill="url(#water)" />
-              <path
-                d="M8 13 C18 3, 33 8, 42 14 C53 22, 67 14, 82 22 C95 29, 97 48, 90 62 C80 72, 62 70, 47 66 C34 62, 19 70, 8 62 C-1 52, 1 26, 8 13 Z"
-                fill="#d4d99f"
-                stroke="#9ca36a"
-                strokeWidth="0.6"
-                opacity="0.95"
-              />
-              <path
-                d="M33 43 C38 39, 47 40, 54 45 C63 51, 69 57, 72 67 C61 71, 47 70, 37 64 C29 59, 28 49, 33 43 Z"
-                fill="#c9d58d"
-                stroke="#9ca36a"
-                strokeWidth="0.5"
-                opacity="0.9"
-              />
-
-              {routes.map((route) => {
-                const meta = ROUTE_META[route.color];
-                const owner = players.find((player) => player.id === route.ownerId);
-                const geometry = routeGeometry(route, cityById);
-                const selected = selectedRouteId === route.id;
-                const fill = owner?.colorHex ?? meta.fill;
-                const stroke = owner ? "#ffffff" : meta.stroke;
-
-                const items = Array.from({ length: route.length }, (_, index) => {
-                  const t = (index + 1) / (route.length + 1);
-                  const x = geometry.x1 + (geometry.x2 - geometry.x1) * t;
-                  const y = geometry.y1 + (geometry.y2 - geometry.y1) * t;
-
-                  return (
-                    <g key={`${route.id}-${index}`} transform={`translate(${x} ${y}) rotate(${geometry.angle})`}>
-                      <rect
-                        x="-1.25"
-                        y="-0.72"
-                        width="2.5"
-                        height="1.44"
-                        rx="0.35"
-                        fill={fill}
-                        stroke={stroke}
-                        strokeWidth={selected ? 0.35 : 0.18}
-                        filter="url(#shadow)"
-                      />
-                      {route.type === "ferry" && index < (route.ferryLocos ?? 1) && (
-                        <text
-                          x="0"
-                          y="0.28"
-                          textAnchor="middle"
-                          fontSize="0.95"
-                          fontWeight="900"
-                          fill={owner ? "#ffffff" : "#111827"}
-                        >
-                          ★
-                        </text>
-                      )}
-                    </g>
-                  );
-                });
-
-                return (
-                  <g key={route.id} className="cursor-pointer" onClick={() => setSelectedRouteId(route.id)}>
-                    <line
-                      x1={geometry.x1}
-                      y1={geometry.y1}
-                      x2={geometry.x2}
-                      y2={geometry.y2}
-                      stroke={selected ? "#10b981" : "rgba(15,23,42,0.24)"}
-                      strokeWidth={selected ? 1.25 : 0.8}
-                      strokeLinecap="round"
-                    />
-                    {items}
-                  </g>
-                );
-              })}
-
-              {CITIES.map((city) => (
-                <g key={city.id}>
-                  <circle cx={city.x} cy={city.y} r="1.65" fill="#111827" stroke="#ffffff" strokeWidth="0.7" />
-                  <circle cx={city.x} cy={city.y} r="0.75" fill="#fef3c7" />
-                  <text
-                    x={city.x + (city.labelDx ?? 1)}
-                    y={city.y + (city.labelDy ?? -0.8)}
-                    textAnchor={city.labelAnchor ?? "start"}
-                    fontSize="1.65"
-                    fontWeight="900"
-                    fill="#0f172a"
-                    stroke="#f8fafc"
-                    strokeWidth="0.22"
-                    paintOrder="stroke"
-                  >
-                    {city.name}
-                  </text>
-                </g>
-              ))}
-            </svg>
+            <EuropeBoardMap game={game} boardRoutes={boardRoutes} selectedRouteId={selectedRouteId} onSelectRoute={setSelectedRouteId} />
           </div>
         </section>
 
         <aside className="min-w-0 space-y-4">
           <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
             <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Claim route</h2>
-
             {selectedRoute ? (
               <div className="space-y-3">
                 <div className="rounded-2xl bg-white/5 p-4">
-                  <p className="text-lg font-black">
-                    {cityName(selectedRoute.from)} → {cityName(selectedRoute.to)}
-                  </p>
+                  <p className="text-lg font-black">{cityName(selectedRoute.from)} → {cityName(selectedRoute.to)}</p>
                   <p className="mt-1 text-sm font-semibold text-slate-400">
-                    {selectedRoute.length} trains · {selectedRoute.points} points ·{" "}
-                    {selectedRoute.color === "gray" ? "Any color" : ROUTE_META[selectedRoute.color].label}
-                    {selectedRoute.type === "ferry" ? ` · ferry needs ${selectedRoute.ferryLocos ?? 1} loco` : ""}
-                    {selectedRoute.type === "tunnel" ? " · tunnel" : ""}
+                    {selectedRoute.length} trains · {selectedRoute.points} points · {ROUTE_META[selectedRoute.color].label}
                   </p>
+                  {selectedRouteIsClaimed && <p className="mt-2 text-sm font-black text-red-200">Already claimed</p>}
                 </div>
-
-                {selectedRoute.color === "gray" && (
-                  <div>
-                    <p className="mb-2 text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                      Choose color for gray route
-                    </p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {CLAIM_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          onClick={() => setSelectedColor(color)}
-                          className={`rounded-2xl px-3 py-2 text-xs font-black ring-2 transition ${
-                            selectedColor === color ? "ring-emerald-400" : "ring-white/10"
-                          } ${CARD_META[color].miniClassName}`}
-                        >
-                          {CARD_META[color].label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={claimSelectedRoute}
-                  disabled={!currentCanClaim}
-                  className="w-full rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 px-4 py-3 font-black text-white shadow-lg shadow-black/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+                <Button
+                  variant="primary"
+                  disabled={!canClaimSelectedRoute || actionLoading}
+                  onClick={() => selectedRoute && handleClaim(selectedRoute.backendId)}
+                  className="w-full"
                 >
-                  Claim selected route
-                </button>
+                  {actionLoading ? "Claiming..." : isMyTurn ? "Claim selected route" : "Not your turn"}
+                </Button>
+              </div>
+            ) : (
+              <p className="rounded-2xl bg-white/5 p-4 text-sm font-semibold text-slate-400">Click any route on the map to select it.</p>
+            )}
+          </section>
+
+          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Your hidden destination tickets</h2>
+            {selectedTickets.length > 0 ? (
+              <div className="space-y-2">
+                {selectedTickets.map((ticket) => (
+                  <div key={ticketId(ticket)} className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                    <p className="font-black">{cityName(ticket.from)} → {cityName(ticket.to)}</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-400">{ticket.points} pts · {ticket.type === "long" ? "long" : "short"}</p>
+                  </div>
+                ))}
               </div>
             ) : (
               <p className="rounded-2xl bg-white/5 p-4 text-sm font-semibold text-slate-400">
-                Click any route on the map to select it.
+                {game?.status === "waiting" ? "Start the game first, then choose tickets." : "Tickets not selected yet."}
               </p>
             )}
           </section>
 
           <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
-            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Train cards</h2>
-
-            <div className="grid grid-cols-5 gap-2">
-              {market.map((card, index) => (
-                <button
-                  key={`${card}-${index}`}
-                  type="button"
-                  onClick={() => drawMarketCard(index)}
-                  className="transition hover:-translate-y-1"
-                >
-                  <TrainCard card={card} />
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={drawBlindCard}
-              className="mt-3 w-full rounded-2xl bg-white/10 px-4 py-3 font-black text-white transition hover:bg-white/15"
-            >
-              Draw blind card ({cardsDrawnThisTurn}/2)
-            </button>
-          </section>
-
-          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
-            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">
-              {activePlayer.name}'s hand
-            </h2>
-            <div className="grid grid-cols-3 gap-2">
-              {CARD_COLORS.map((color) => (
-                <div key={color} className={`rounded-2xl px-3 py-2 text-center text-xs font-black ${CARD_META[color].miniClassName}`}>
-                  {CARD_META[color].label}: {activePlayer.hand[color]}
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
-            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Your hidden tickets</h2>
-            <div className="space-y-2">
-              {players[0]?.tickets.map((ticket) => {
-                const completed = hasConnection(players[0], routes, ticket.from, ticket.to);
-
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Routes list</h2>
+            <div className="max-h-80 space-y-2 overflow-auto pr-1">
+              {(game?.routes ?? []).map((route) => {
+                const selected = selectedRouteId === route.id;
+                const claimed = Boolean(route.claimed_by_player_id);
                 return (
-                  <div
-                    key={ticketId(ticket)}
-                    className={`rounded-2xl border p-3 ${
-                      completed ? "border-emerald-400/40 bg-emerald-400/10" : "border-white/10 bg-white/5"
-                    }`}
-                  >
-                    <p className="font-black">
-                      {cityName(ticket.from)} → {cityName(ticket.to)}
-                    </p>
-                    <p className="mt-1 text-xs font-semibold text-slate-400">
-                      {ticket.points} pts · {completed ? "completed" : "not completed"}
-                    </p>
-                  </div>
+                  <button key={route.id} type="button" onClick={() => setSelectedRouteId(route.id)} className={`w-full rounded-2xl border p-3 text-left transition ${selected ? "border-cyan-400 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:bg-white/10"}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div><p className="font-black">{route.city_a} → {route.city_b}</p><p className="text-sm text-slate-400">Length {route.length} · {route.points} pts</p></div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${claimed ? "bg-red-500/20 text-red-200" : "bg-emerald-400/20 text-emerald-200"}`}>{claimed ? "Claimed" : "Free"}</span>
+                    </div>
+                  </button>
                 );
               })}
             </div>
           </section>
 
           <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
-            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Game log</h2>
+            <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">Latest turns</h2>
             <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-              {log.map((item) => (
-                <p key={item.id} className="rounded-2xl bg-white/5 px-3 py-2 text-sm font-semibold text-slate-300">
-                  {item.text}
-                </p>
+              {(game?.turns ?? []).slice(-6).reverse().map((turn) => (
+                <div key={turn.id} className="rounded-2xl bg-white/5 p-3 text-sm text-slate-300">
+                  <div className="font-bold text-slate-100">{turn.action}</div>
+                  <div className="text-slate-400">Player: {turn.player_id}</div>
+                </div>
               ))}
             </div>
           </section>

@@ -299,7 +299,17 @@ export default function LobbyPage() {
   };
 
   const openBoard = (game: Game, playerToken?: string) => {
-    saveLobbySnapshotForBoard(game, playerToken);
+    const fallbackToken = playerToken ?? localStorage.getItem(`ttr_player_token_${game.id}`) ?? localStorage.getItem(`ttr_host_token_${game.id}`);
+
+    if (fallbackToken && !localStorage.getItem(`ttr_player_token_${game.id}`)) {
+      localStorage.setItem(`ttr_player_token_${game.id}`, fallbackToken);
+    }
+
+    if (user?.user_id && !localStorage.getItem(`ttr_player_id_${game.id}`)) {
+      localStorage.setItem(`ttr_player_id_${game.id}`, String(user.user_id));
+    }
+
+    saveLobbySnapshotForBoard(game, fallbackToken ?? undefined);
     navigate(`/game/${game.id}`);
   };
 
@@ -355,8 +365,20 @@ export default function LobbyPage() {
           localStorage.setItem(`ttr_host_token_${normalizedCreatedGame.id}`, createdGame.host_token);
         }
 
-        if (createdGame?.player_token) {
-          localStorage.setItem(`ttr_player_token_${normalizedCreatedGame.id}`, createdGame.player_token);
+        const roomToken = createdGame?.player_token ?? createdGame?.host_token;
+        if (roomToken) {
+          localStorage.setItem(`ttr_player_token_${normalizedCreatedGame.id}`, roomToken);
+        }
+
+        const roomPlayerId =
+          createdGame?.player_id ??
+          createdGame?.host_player_id ??
+          createdGame?.player?.id ??
+          createdGame?.host?.id ??
+          user?.user_id;
+
+        if (roomPlayerId) {
+          localStorage.setItem(`ttr_player_id_${normalizedCreatedGame.id}`, String(roomPlayerId));
         }
 
         setGames((prev) => {
@@ -426,6 +448,11 @@ export default function LobbyPage() {
       const playerToken = joinData?.player_token;
       if (playerToken) {
         localStorage.setItem(`ttr_player_token_${gameId}`, playerToken);
+      }
+
+      const joinedPlayerId = joinData?.player_id ?? joinData?.player?.id ?? user?.user_id;
+      if (joinedPlayerId) {
+        localStorage.setItem(`ttr_player_id_${gameId}`, String(joinedPlayerId));
       }
 
       const updatedGame = normalizeGame({
