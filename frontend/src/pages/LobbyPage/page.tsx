@@ -25,8 +25,10 @@ export default function LobbyPage() {
   const { user, isAuthenticated, setUser } = useUser();
   const [games, setGames] = useState<Game[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [showCreateGame, setShowCreateGame] = useState(false);
   const [newGameName, setNewGameName] = useState("");
+  const [createError, setCreateError] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 1, time: "15:31", user: "system", text: `${user?.username} joined the lobby`, isSystem: true },
   ]);
@@ -88,6 +90,16 @@ export default function LobbyPage() {
 
   const handleCreateGame = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateError("");
+    
+    if (!newGameName.trim()) {
+      setCreateError("Please enter a game name");
+      return;
+    }
+
+    setIsCreatingGame(true);
+    const gameName = newGameName;
+
     try {
       const token = localStorage.getItem("ttr_auth_token");
       const response = await fetch("/api/v1/games", {
@@ -96,17 +108,29 @@ export default function LobbyPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ name: newGameName || `${user?.username}'s Game` }),
+        body: JSON.stringify({ name: gameName }),
       });
-      if (response.ok) {
-        setNewGameName("");
-        setShowCreateGame(false);
-        await fetchGames();
-        addSystemMessage(`Created new game: ${newGameName || "New Game"}`);
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to create game");
       }
+
+      const newGame = await response.json();
+      setNewGameName("");
+      setShowCreateGame(false);
+      setCreateError("");
+      
+      // Add to games list immediately
+      setGames((prev) => [newGame, ...prev]);
+      addSystemMessage(`✨ ${user?.username} created game: ${gameName}`);
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Failed to create game";
+      setCreateError(errorMsg);
+      addSystemMessage(`❌ Failed to create game: ${errorMsg}`);
       console.error("Failed to create game:", error);
-      addSystemMessage("Failed to create game");
+    } finally {
+      setIsCreatingGame(false);
     }
   };
 
@@ -284,25 +308,41 @@ export default function LobbyPage() {
 
             {showCreateGame && (
               <div className="border-b border-slate-100 px-6 py-5 bg-slate-50">
-                <form onSubmit={handleCreateGame} className="flex gap-3">
+                {createError && (
+                  <p className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-700">❌ {createError}</p>
+                )}
+                <form onSubmit={handleCreateGame} className="flex flex-col gap-3">
                   <input
                     type="text"
                     value={newGameName}
                     onChange={(e) => setNewGameName(e.target.value)}
-                    placeholder="Game name (optional)"
-                    className="flex-1 px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#4bbda6]"
+                    placeholder="Enter game name..."
+                    disabled={isCreatingGame}
+                    className="px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#4bbda6] disabled:bg-slate-100 disabled:cursor-not-allowed"
                   />
-                  <Button variant="primary" type="submit" className="px-6">
-                    Create
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    type="button"
-                    onClick={() => setShowCreateGame(false)}
-                    className="px-6"
-                  >
-                    Cancel
-                  </Button>
+                  <div className="flex gap-3">
+                    <Button 
+                      variant="primary" 
+                      type="submit" 
+                      className="px-6 flex-1"
+                      disabled={isCreatingGame}
+                    >
+                      {isCreatingGame ? "Creating..." : "Create Game"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      type="button"
+                      onClick={() => {
+                        setShowCreateGame(false);
+                        setCreateError("");
+                        setNewGameName("");
+                      }}
+                      className="px-6"
+                      disabled={isCreatingGame}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </form>
               </div>
             )}
