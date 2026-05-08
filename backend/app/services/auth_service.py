@@ -61,3 +61,16 @@ def get_user_by_token(db: Session, token: str) -> User:
         raise HTTPException(status_code=401, detail="Invalid token")
     return user
 
+
+def revoke_token(db: Session, token: str) -> None:
+    if not token:
+        return
+
+    user = db.scalar(select(User).where(User.auth_token == token))
+    if not user:
+        return
+
+    user.auth_token = None
+    db.commit()
+
+

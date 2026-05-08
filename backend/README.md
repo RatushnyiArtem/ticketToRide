@@ -11,7 +11,7 @@ Built with FastAPI + SQLAlchemy + SQLite.
 - current game state endpoint
 - one basic turn action: claim route
 - turn order, score, and train cars updates
-- user auth routes: register, login, me
+- user auth routes: register, login, me, logout (HttpOnly cookie token)
 - seeded demo routes in SQLite
 
 ## Stack
@@ -45,7 +45,11 @@ Open Swagger: http://127.0.0.1:8000/docs
 
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
-- `GET /api/v1/auth/me` with `Authorization: Bearer <token>`
+- `GET /api/v1/auth/me` (token from HttpOnly cookie)
+- `POST /api/v1/auth/logout` (clears auth cookie)
+
+`register` and `login` return token in JSON for compatibility, but also set `HttpOnly` auth cookie.
+`me` reads cookie first and still supports `Authorization: Bearer <token>` fallback.
 
 ## Run tests
 
