@@ -1,4 +1,4 @@
-from ticketToRide.backend.app.models.models import ClaimedRoute, Game, GameStatus, Player, Route, Turn, TurnAction, User
+from app.models.models import ClaimedRoute, Game, GameStatus, Player, Route, Turn, TurnAction, User
 
 __all__ = [
     "ClaimedRoute",

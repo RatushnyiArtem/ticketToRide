@@ -4,8 +4,8 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ticketToRide.backend.app.models import ClaimedRoute, Game, GameStatus, Player, Route, Turn, TurnAction
-from ticketToRide.backend.app.schemas.schemas import GameStateResponse, PlayerResponse, RouteResponse, TurnResponse
+from app.models import ClaimedRoute, Game, GameStatus, Player, Route, Turn, TurnAction
+from app.schemas.schemas import GameStateResponse, PlayerResponse, RouteResponse, TurnResponse
 
 
 def _points_for_length(length: int) -> int:

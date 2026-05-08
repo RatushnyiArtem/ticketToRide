@@ -6,7 +6,7 @@ from typing import Optional
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ticketToRide.backend.app.db.base import Base
+from app.db.base import Base
 
 
 class GameStatus(str, enum.Enum):

@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from ticketToRide.backend.app.db.session import init_db
-from ticketToRide.backend.app.main import app
+from app.db.session import init_db
+from app.main import app
 
 
 def test_register_and_me_flow():

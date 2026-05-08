@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Header, status
 from sqlalchemy.orm import Session
 
-from ticketToRide.backend.app.db.session import get_db
-from ticketToRide.backend.app.schemas import LoginRequest, MeResponse, RegisterRequest, UserAuthResponse
-from ticketToRide.backend.app.services import auth_service
+from app.db.session import get_db
+from app.schemas import LoginRequest, MeResponse, RegisterRequest, UserAuthResponse
+from app.services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

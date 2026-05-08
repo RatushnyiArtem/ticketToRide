@@ -4,9 +4,9 @@ import time
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from ticketToRide.backend.app.core.config import settings
-from ticketToRide.backend.app.db.base import Base
-from ticketToRide.backend.app.models import Route
+from app.core.config import settings
+from app.db.base import Base
+from app.models import Route
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 engine = create_engine(settings.database_url, connect_args=connect_args)

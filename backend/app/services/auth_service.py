@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ticketToRide.backend.app.models import User
+from app.models import User
 
 
 def _hash_password(password: str) -> str:

@@ -1,4 +1,4 @@
-from ticketToRide.backend.app.schemas.schemas import (
+from app.schemas.schemas import (
     AuthResponse,
     ClaimRouteRequest,
     CreateGameRequest,

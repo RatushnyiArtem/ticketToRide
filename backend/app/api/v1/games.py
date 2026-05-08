@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from ticketToRide.backend.app.db.session import get_db
-from ticketToRide.backend.app.schemas import AuthResponse, ClaimRouteRequest, CreateGameRequest, GameStateResponse, JoinGameRequest, StartGameRequest
-from ticketToRide.backend.app.services import game_service
+from app.db.session import get_db
+from app.schemas import AuthResponse, ClaimRouteRequest, CreateGameRequest, GameStateResponse, JoinGameRequest, StartGameRequest
+from app.services import game_service
 
 router = APIRouter(prefix="/games", tags=["games"])
 
