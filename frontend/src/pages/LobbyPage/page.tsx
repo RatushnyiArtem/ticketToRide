@@ -46,6 +46,7 @@ interface BoardLobbySnapshot {
 }
 
 const ACTIVE_LOBBY_STORAGE_KEY = "ttr_current_lobby";
+const WAITING_LOBBY_STORAGE_PREFIX = "ttr_waiting_lobby";
 
 const getArrayFromApiResponse = (data: unknown): unknown[] => {
   if (Array.isArray(data)) return data;
@@ -141,8 +142,10 @@ export default function LobbyPage() {
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [joiningGameId, setJoiningGameId] = useState<string | null>(null);
   const [startingGameId, setStartingGameId] = useState<string | null>(null);
+  const [watchingGameId, setWatchingGameId] = useState<string | null>(null);
 
   const [showCreateGame, setShowCreateGame] = useState(false);
+  const [showGameTypeChoice, setShowGameTypeChoice] = useState(false);
   const [newGameName, setNewGameName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(5);
   const [createError, setCreateError] = useState("");
@@ -203,6 +206,90 @@ export default function LobbyPage() {
     return () => window.clearInterval(intervalId);
   }, [isAuthenticated]);
 
+  const isGameFull = (game: Game) => game.current_players >= game.max_players;
+
+  const getStoredSnapshotGameId = (): string | null => {
+    if (typeof window === "undefined") return null;
+
+    try {
+      const storedSnapshot = localStorage.getItem(ACTIVE_LOBBY_STORAGE_KEY);
+      if (!storedSnapshot) return null;
+
+      const parsedSnapshot = JSON.parse(storedSnapshot) as Partial<BoardLobbySnapshot>;
+
+      // Important: do not use an old lobby snapshot created by another account.
+      // This prevents a newly registered/logged-in user from being redirected
+      // into an old game immediately after entering the lobby page.
+      if (
+        parsedSnapshot.currentUserId !== undefined &&
+        user?.user_id !== undefined &&
+        String(parsedSnapshot.currentUserId) !== String(user.user_id)
+      ) {
+        localStorage.removeItem(ACTIVE_LOBBY_STORAGE_KEY);
+        return null;
+      }
+
+      return parsedSnapshot.gameId ? String(parsedSnapshot.gameId) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const getWaitingLobbyStorageKey = () => {
+    const userKey = user?.user_id ?? user?.username ?? "anonymous";
+    return `${WAITING_LOBBY_STORAGE_PREFIX}_${userKey}`;
+  };
+
+  const setWaitingLobbyId = (gameId: string) => {
+    setWatchingGameId(gameId);
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(getWaitingLobbyStorageKey(), gameId);
+    }
+  };
+
+  const getWaitingLobbyId = (): string | null => {
+    if (watchingGameId) return watchingGameId;
+    if (typeof window === "undefined") return null;
+    return sessionStorage.getItem(getWaitingLobbyStorageKey());
+  };
+
+  const clearWaitingLobbyId = () => {
+    setWatchingGameId(null);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(getWaitingLobbyStorageKey());
+    }
+  };
+
+  const isCurrentUserInGame = (game: Game) => {
+    const currentUserId = user?.user_id;
+    const currentUsername = user?.username?.toLowerCase();
+
+    const hasLocalRoomState =
+      typeof window !== "undefined" &&
+      Boolean(
+        localStorage.getItem(`ttr_player_token_${game.id}`) ||
+          localStorage.getItem(`ttr_host_token_${game.id}`) ||
+          localStorage.getItem(`ttr_player_id_${game.id}`) ||
+          getStoredSnapshotGameId() === game.id,
+      );
+
+    const isListedInPlayers = (game.players ?? []).some((player) => {
+      const playerId = player.id ?? player.user_id;
+      const playerName = (player.username ?? player.name ?? player.email)?.toLowerCase();
+
+      return (
+        (playerId !== undefined &&
+          playerId !== null &&
+          currentUserId !== undefined &&
+          currentUserId !== null &&
+          String(playerId) === String(currentUserId)) ||
+        (Boolean(currentUsername) && playerName === currentUsername)
+      );
+    });
+
+    return hasLocalRoomState || isListedInPlayers;
+  };
+
   const fetchGames = async (showLoader = true) => {
     if (showLoader) setIsLoading(true);
     setListError("");
@@ -220,7 +307,26 @@ export default function LobbyPage() {
       }
 
       const data = await response.json();
-      setGames(normalizeGames(data));
+      const normalizedGames = normalizeGames(data);
+      setGames(normalizedGames);
+
+      // Do NOT redirect just because some lobby is full/started.
+      // Otherwise a user can be thrown into a game immediately after login/registration.
+      // We only auto-open a game that this browser explicitly created or joined.
+      const waitingGameId = getWaitingLobbyId();
+      if (waitingGameId) {
+        const activeGame = normalizedGames.find(
+          (game) =>
+            game.id === waitingGameId &&
+            (game.status === "started" || isGameFull(game)) &&
+            isCurrentUserInGame(game),
+        );
+
+        if (activeGame) {
+          openBoard({ ...activeGame, status: "started" });
+          return;
+        }
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Failed to load available lobbies";
       setListError(errorMsg);
@@ -245,8 +351,6 @@ export default function LobbyPage() {
       },
     ]);
   };
-
-  const isGameFull = (game: Game) => game.current_players >= game.max_players;
 
   const withCurrentUserAsPlayer = (players: LobbyPlayer[] = []): LobbyPlayer[] => {
     const currentUserId = user?.user_id;
@@ -298,6 +402,14 @@ export default function LobbyPage() {
     localStorage.setItem(ACTIVE_LOBBY_STORAGE_KEY, JSON.stringify(snapshot));
   };
 
+  const handleCreateLocalBotGame = () => {
+    setShowGameTypeChoice(false);
+    setShowCreateGame(false);
+    setNewGameName("");
+    setMaxPlayers(5);
+    navigate("/game");
+  };
+
   const openBoard = (game: Game, playerToken?: string) => {
     const fallbackToken = playerToken ?? localStorage.getItem(`ttr_player_token_${game.id}`) ?? localStorage.getItem(`ttr_host_token_${game.id}`);
 
@@ -309,6 +421,7 @@ export default function LobbyPage() {
       localStorage.setItem(`ttr_player_id_${game.id}`, String(user.user_id));
     }
 
+    clearWaitingLobbyId();
     saveLobbySnapshotForBoard(game, fallbackToken ?? undefined);
     navigate(`/game/${game.id}`);
   };
@@ -322,6 +435,7 @@ export default function LobbyPage() {
       return;
     }
 
+    setShowGameTypeChoice(false);
     setIsCreatingGame(true);
     const gameName = newGameName.trim();
 
@@ -361,6 +475,8 @@ export default function LobbyPage() {
       });
 
       if (normalizedCreatedGame) {
+        setWaitingLobbyId(normalizedCreatedGame.id);
+
         if (createdGame?.host_token) {
           localStorage.setItem(`ttr_host_token_${normalizedCreatedGame.id}`, createdGame.host_token);
         }
@@ -417,26 +533,9 @@ export default function LobbyPage() {
       });
 
       if (response.status === 404 || response.status === 405) {
-        if (!currentGame) {
-          navigate(`/game/${gameId}`);
-          return;
-        }
-
-        const locallyJoinedGame: Game = {
-          ...currentGame,
-          current_players: Math.min(currentGame.current_players + 1, currentGame.max_players),
-          players: withCurrentUserAsPlayer(currentGame.players),
-        };
-
-        setGames((prev) => prev.map((game) => (game.id === gameId ? locallyJoinedGame : game)));
-
-        if (isGameFull(locallyJoinedGame)) {
-          openBoard({ ...locallyJoinedGame, status: "started" });
-        } else {
-          addSystemMessage(`✅ ${user?.username} joined lobby. Waiting for more players...`);
-        }
-
-        return;
+        throw new Error(
+          "Join endpoint is not available. Check backend route: POST /api/v1/games/:gameId/join. The frontend must not fake a multiplayer join locally.",
+        );
       }
 
       const joinData = await response.json().catch(() => null);
@@ -454,6 +553,8 @@ export default function LobbyPage() {
       if (joinedPlayerId) {
         localStorage.setItem(`ttr_player_id_${gameId}`, String(joinedPlayerId));
       }
+
+      setWaitingLobbyId(gameId);
 
       const updatedGame = normalizeGame({
         ...currentGame,
@@ -510,8 +611,9 @@ export default function LobbyPage() {
       });
 
       if (response.status === 404 || response.status === 405) {
-        openBoard({ ...game, status: "started" });
-        return;
+        throw new Error(
+          "Start endpoint is not available. Check backend route: POST /api/v1/games/:gameId/start. The frontend must not start a multiplayer game only locally.",
+        );
       }
 
       const startData = await response.json().catch(() => null);
@@ -645,6 +747,7 @@ export default function LobbyPage() {
               onClick={() => {
                 localStorage.removeItem("ttr_auth_token");
                 localStorage.removeItem(ACTIVE_LOBBY_STORAGE_KEY);
+                clearWaitingLobbyId();
                 navigate("/login");
               }}
               className="px-4"
@@ -738,10 +841,42 @@ export default function LobbyPage() {
                   When lobby is full, open the board and choose hidden tickets
                 </p>
               </div>
-              <Button variant="primary" onClick={() => setShowCreateGame(!showCreateGame)} className="px-4">
+              <Button variant="primary" onClick={() => setShowGameTypeChoice(!showGameTypeChoice)} className="px-4">
                 + Create Lobby
               </Button>
             </div>
+
+            {showGameTypeChoice && (
+              <div className="border-b border-slate-100 bg-gradient-to-br from-blue-50 to-purple-50 px-6 py-5">
+                <p className="mb-4 font-semibold text-slate-700">Choose game mode:</p>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={handleCreateLocalBotGame}
+                    className="flex-1 rounded-lg border-2 border-blue-400 bg-blue-50 px-6 py-3 font-bold text-blue-700 transition hover:bg-blue-100"
+                  >
+                    🤖 Play with Bot (Local)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowGameTypeChoice(false);
+                      setShowCreateGame(true);
+                    }}
+                    className="flex-1 rounded-lg border-2 border-purple-400 bg-purple-50 px-6 py-3 font-bold text-purple-700 transition hover:bg-purple-100"
+                  >
+                    👥 Create Online Lobby
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowGameTypeChoice(false)}
+                    className="flex-1 rounded-lg border-2 border-slate-300 bg-white px-6 py-3 font-bold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             {showCreateGame && (
               <div className="border-b border-slate-100 bg-slate-50 px-6 py-5">

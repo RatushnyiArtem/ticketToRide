@@ -18,13 +18,28 @@ class RealtimeManager:
     def __init__(self) -> None:
         self._connections: dict[str, list[ConnectionContext]] = defaultdict(list)
 
-    async def connect(self, game_id: str, websocket: WebSocket, player_id: str | None = None, token: str | None = None) -> None:
+    async def connect(
+        self,
+        game_id: str,
+        websocket: WebSocket,
+        player_id: str | None = None,
+        token: str | None = None,
+    ) -> None:
         await websocket.accept()
-        self._connections[game_id].append(ConnectionContext(websocket=websocket, player_id=player_id, token=token))
+        self._connections[game_id].append(
+            ConnectionContext(
+                websocket=websocket,
+                player_id=player_id,
+                token=token,
+            )
+        )
 
     def disconnect(self, game_id: str, websocket: WebSocket) -> None:
         contexts = self._connections.get(game_id, [])
-        self._connections[game_id] = [ctx for ctx in contexts if ctx.websocket is not websocket]
+        self._connections[game_id] = [
+            ctx for ctx in contexts if ctx.websocket is not websocket
+        ]
+
         if not self._connections[game_id]:
             self._connections.pop(game_id, None)
 
@@ -38,7 +53,11 @@ class RealtimeManager:
             except Exception:
                 self.disconnect(game_id, context.websocket)
 
-    async def broadcast_game_state(self, game_id: str, game_state: dict[str, Any]) -> None:
+    async def broadcast_game_state(
+        self,
+        game_id: str,
+        game_state: dict[str, Any],
+    ) -> None:
         await self.send_json(
             game_id,
             {
@@ -60,4 +79,3 @@ class RealtimeManager:
 
 
 realtime_manager = RealtimeManager()
-

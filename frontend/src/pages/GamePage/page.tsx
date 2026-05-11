@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { claimRoute as claimRouteOnServer, endTurn as endTurnOnServer, getGameState, type GameRoute as ServerGameRoute, type GameState } from "../../lib/gameApi";
+import { getGameState, getRealtimeGameState, type GameRoute as ServerGameRoute, type GameState } from "../../lib/gameApi";
 import { connectGameSocket } from "../../lib/gameSocket";
 
 type PlayerColor = "red" | "blue" | "green" | "yellow" | "black";
@@ -106,6 +106,7 @@ interface Player {
   score: number;
   trains: number;
   hand: Record<CardColor, number>;
+  handCount?: number;
   tickets: Ticket[];
   isHuman: boolean;
   hasSelectedStartingTickets?: boolean;
@@ -294,9 +295,9 @@ const CITIES: City[] = [
   { id: "brest", name: "Brest", x: 13, y: 36, labelDx: -0.4, labelDy: -0.9, labelAnchor: "end" },
   { id: "paris", name: "Paris", x: 20, y: 39, labelDx: 1.25, labelDy: -0.8 },
   { id: "pamplona", name: "Pamplona", x: 17, y: 56, labelDx: 1.1, labelDy: -0.8 },
-  { id: "madrid", name: "Madrid", x: 8, y: 60, labelDx: 1.1, labelDy: -0.9 },
-  { id: "lisboa", name: "Lisboa", x: 5, y: 62.5, labelDx: 1.1, labelDy: -0.8 },
-  { id: "cadiz", name: "Cadiz", x: 8, y: 67, labelDx: 1.1, labelDy: -0.8 },
+  { id: "madrid", name: "Madrid", x: 15, y: 60, labelDx: 1.1, labelDy: -0.9 },
+  { id: "lisboa", name: "Lisboa", x: 10, y: 62.5, labelDx: 1.1, labelDy: -0.8 },
+  { id: "cadiz", name: "Cadiz", x: 12, y: 67, labelDx: 1.1, labelDy: -0.8 },
   { id: "barcelona", name: "Barcelona", x: 22, y: 62, labelDx: 1.1, labelDy: -0.8 },
   { id: "marseille", name: "Marseille", x: 31, y: 52, labelDx: 1.1, labelDy: -0.8 },
   { id: "zurich", name: "Zürich", x: 35, y: 44, labelDx: 1.05, labelDy: -0.75 },
@@ -528,6 +529,28 @@ function getSnapshotPlayerToken(snapshot: BoardLobbySnapshot | null): string | n
   return snapshot?.playerToken ?? snapshot?.player_token ?? null;
 }
 
+function getStoredPlayerId(gameId: string | undefined, snapshot: BoardLobbySnapshot | null): string | null {
+  if (gameId) {
+    const storedPlayerId = localStorage.getItem(`ttr_player_id_${gameId}`);
+    if (storedPlayerId) return storedPlayerId;
+  }
+
+  const snapshotPlayerId = getSnapshotCurrentUserId(snapshot);
+  return snapshotPlayerId;
+}
+
+function getStoredPlayerToken(gameId: string | undefined, snapshot: BoardLobbySnapshot | null): string | null {
+  if (gameId) {
+    const storedPlayerToken = localStorage.getItem(`ttr_player_token_${gameId}`);
+    if (storedPlayerToken) return storedPlayerToken;
+
+    const storedHostToken = localStorage.getItem(`ttr_host_token_${gameId}`);
+    if (storedHostToken) return storedHostToken;
+  }
+
+  return getSnapshotPlayerToken(snapshot);
+}
+
 const INITIAL_TICKETS: Ticket[] = [
   { from: "london", to: "roma", points: 10 },
   { from: "paris", to: "moscow", points: 18 },
@@ -651,6 +674,50 @@ function saveStartingTickets(storageKey: string, tickets: Ticket[]) {
 
 function clearStartingTickets(storageKey: string) {
   localStorage.removeItem(storageKey);
+}
+
+const LOCAL_GAME_STATE_KEY = "ttr_local_game_state";
+
+interface LocalGameState {
+  players: Player[];
+  routes: Route[];
+  deck: CardColor[];
+  market: CardColor[];
+  ticketDeck: Ticket[];
+  activePlayerIndex: number;
+  selectedRouteId: string | null;
+  selectedColor: CardColor;
+  cardsDrawnThisTurn: number;
+  log: LogItem[];
+  startingTicketOffer: StartingTicketOffer;
+  showStartingTicketSelection: boolean;
+  selectedStartingTicketIds: string[];
+  finalRoundActive: boolean;
+  finalRoundRemaining: string[];
+  gameFinished: boolean;
+  gameLost: boolean;
+}
+
+function readLocalGameState(): LocalGameState | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_GAME_STATE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as LocalGameState;
+  } catch {
+    return null;
+  }
+}
+
+function saveLocalGameState(state: LocalGameState) {
+  try {
+    localStorage.setItem(LOCAL_GAME_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+function clearLocalGameState() {
+  localStorage.removeItem(LOCAL_GAME_STATE_KEY);
 }
 
 function getPlayerDisplayName(player: LobbySnapshotPlayer, index: number): string {
@@ -830,6 +897,18 @@ function spendCards(
 
 function handCount(hand: Record<CardColor, number>): number {
   return Object.values(hand).reduce((sum, value) => sum + value, 0);
+}
+
+function normalizeHand(rawHand?: Partial<Record<CardColor, number>> | null): Record<CardColor, number> {
+  const hand = emptyHand();
+
+  if (!rawHand) return hand;
+
+  CARD_COLORS.forEach((color) => {
+    hand[color] = Number(rawHand[color] ?? 0);
+  });
+
+  return hand;
 }
 
 function hasConnection(player: Player, routes: Route[], from: CityId, to: CityId): boolean {
@@ -1053,8 +1132,46 @@ export default function GameBoard() {
   const initialTicketDeck = useMemo(() => shuffle(INITIAL_TICKETS), []);
   const prepared = useMemo(() => createPlayers(initialDeck, initialTicketDeck), [initialDeck, initialTicketDeck]);
   const preparedMarket = useMemo(() => refillMarket(prepared.deck, []), [prepared.deck]);
+  const [localGameState] = useState<LocalGameState | null>(() => {
+    if (gameId) return null;
+
+    const existing = readLocalGameState();
+    if (existing) return existing;
+
+    const initial: LocalGameState = {
+      players: prepared.players,
+      routes: INITIAL_ROUTES,
+      deck: preparedMarket.deck,
+      market: preparedMarket.market,
+      ticketDeck: prepared.ticketDeck,
+      activePlayerIndex: 0,
+      selectedRouteId: null,
+      selectedColor: "red",
+      cardsDrawnThisTurn: 0,
+      log: [
+        {
+          id: Date.now(),
+          text: "Game started. Choose your hidden destination tickets.",
+        },
+      ],
+      startingTicketOffer: prepared.humanTicketOffer,
+      showStartingTicketSelection: Boolean(gameId) || !savedStartingTickets,
+      selectedStartingTicketIds: [
+        ticketId(prepared.humanTicketOffer.longTicket),
+        ticketId(prepared.humanTicketOffer.shortTickets[0]),
+      ],
+      finalRoundActive: false,
+      finalRoundRemaining: [],
+      gameFinished: false,
+      gameLost: false,
+    };
+
+    saveLocalGameState(initial);
+    return initial;
+  });
 
   const [players, setPlayers] = useState<Player[]>(() =>
+    localGameState?.players ??
     prepared.players.map((player, index) =>
       index === 0 && savedStartingTickets
         ? {
@@ -1065,51 +1182,132 @@ export default function GameBoard() {
         : player,
     ),
   );
-  const [routes, setRoutes] = useState<Route[]>(INITIAL_ROUTES);
-  const [deck, setDeck] = useState<CardColor[]>(preparedMarket.deck);
-  const [market, setMarket] = useState<CardColor[]>(preparedMarket.market);
-  const [ticketDeck, setTicketDeck] = useState<Ticket[]>(prepared.ticketDeck);
-  const [activePlayerIndex, setActivePlayerIndex] = useState(0);
-  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
-  const [selectedColor, setSelectedColor] = useState<CardColor>("red");
-  const [cardsDrawnThisTurn, setCardsDrawnThisTurn] = useState(0);
-  const [log, setLog] = useState<LogItem[]>([
-    {
-      id: Date.now(),
-      text: "Game started. Choose your hidden destination tickets.",
-    },
-  ]);
+  const [routes, setRoutes] = useState<Route[]>(localGameState?.routes ?? INITIAL_ROUTES);
+  const [deck, setDeck] = useState<CardColor[]>(localGameState?.deck ?? preparedMarket.deck);
+  const [market, setMarket] = useState<CardColor[]>(localGameState?.market ?? preparedMarket.market);
+  const [ticketDeck, setTicketDeck] = useState<Ticket[]>(localGameState?.ticketDeck ?? prepared.ticketDeck);
+  const [activePlayerIndex, setActivePlayerIndex] = useState(localGameState?.activePlayerIndex ?? 0);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(localGameState?.selectedRouteId ?? null);
+  const [selectedColor, setSelectedColor] = useState<CardColor>(localGameState?.selectedColor ?? "red");
+  const [cardsDrawnThisTurn, setCardsDrawnThisTurn] = useState(localGameState?.cardsDrawnThisTurn ?? 0);
+  const [finalRoundActive, setFinalRoundActive] = useState(localGameState?.finalRoundActive ?? false);
+  const [finalRoundRemaining, setFinalRoundRemaining] = useState<string[]>(localGameState?.finalRoundRemaining ?? []);
+  const [gameFinished, setGameFinished] = useState(localGameState?.gameFinished ?? false);
+  const [gameLost, setGameLost] = useState(localGameState?.gameLost ?? false);
+  const [log, setLog] = useState<LogItem[]>(
+    localGameState?.log ?? [
+      {
+        id: Date.now(),
+        text: "Game started. Choose your hidden destination tickets.",
+      },
+    ],
+  );
 
-  const [startingTicketOffer, setStartingTicketOffer] = useState<StartingTicketOffer>(prepared.humanTicketOffer);
-  const [showStartingTicketSelection, setShowStartingTicketSelection] = useState(!savedStartingTickets);
-  const [selectedStartingTicketIds, setSelectedStartingTicketIds] = useState<string[]>([
-    ticketId(prepared.humanTicketOffer.longTicket),
-    ticketId(prepared.humanTicketOffer.shortTickets[0]),
-  ]);
+  const [startingTicketOffer, setStartingTicketOffer] = useState<StartingTicketOffer>(
+    localGameState?.startingTicketOffer ?? prepared.humanTicketOffer,
+  );
+  const [showStartingTicketSelection, setShowStartingTicketSelection] = useState(
+    localGameState?.showStartingTicketSelection ?? (Boolean(gameId) || !savedStartingTickets),
+  );
+  const [selectedStartingTicketIds, setSelectedStartingTicketIds] = useState<string[]>(
+    localGameState?.selectedStartingTicketIds ?? [
+      ticketId(prepared.humanTicketOffer.longTicket),
+      ticketId(prepared.humanTicketOffer.shortTickets[0]),
+    ],
+  );
 
   const lobbySnapshot = useMemo(() => readLobbySnapshot(), []);
-  const localPlayerId = useMemo(() => getSnapshotCurrentUserId(lobbySnapshot), [lobbySnapshot]);
-  const playerToken = useMemo(() => getSnapshotPlayerToken(lobbySnapshot), [lobbySnapshot]);
+  const localPlayerId = useMemo(() => getStoredPlayerId(gameId, lobbySnapshot), [gameId, lobbySnapshot]);
+  const playerToken = useMemo(() => getStoredPlayerToken(gameId, lobbySnapshot), [gameId, lobbySnapshot]);
   const isOnlineGame = Boolean(gameId && playerToken);
+  const isLocalBotGame = !gameId;
   const socketRef = useRef<ReturnType<typeof connectGameSocket> | null>(null);
   const serverRouteIdByLocalRouteIdRef = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!gameId) return;
+
+    // Online games must not use locally generated random deck/market.
+    // Until backend sends the authoritative state, keep action UI disabled.
+    setDeck([]);
+    setMarket([]);
+    setCardsDrawnThisTurn(0);
+    setServerCurrentPlayerId(null);
+  }, [gameId]);
+
+  useEffect(() => {
+    if (isOnlineGame) return;
+
+    saveLocalGameState({
+      players,
+      routes,
+      deck,
+      market,
+      ticketDeck,
+      activePlayerIndex,
+      selectedRouteId,
+      selectedColor,
+      cardsDrawnThisTurn,
+      finalRoundActive,
+      finalRoundRemaining,
+      gameFinished,
+      gameLost,
+      log,
+      startingTicketOffer,
+      showStartingTicketSelection,
+      selectedStartingTicketIds,
+    });
+  }, [
+    isOnlineGame,
+    players,
+    routes,
+    deck,
+    market,
+    ticketDeck,
+    activePlayerIndex,
+    selectedRouteId,
+    selectedColor,
+    cardsDrawnThisTurn,
+    finalRoundActive,
+    finalRoundRemaining,
+    gameFinished,
+    gameLost,
+    log,
+    startingTicketOffer,
+    showStartingTicketSelection,
+    selectedStartingTicketIds,
+  ]);
+
   const handledExpiredTurnRef = useRef<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<"offline" | "connecting" | "connected" | "closed">(
     isOnlineGame ? "connecting" : "offline",
   );
+  const [serverCurrentPlayerId, setServerCurrentPlayerId] = useState<string | null>(null);
   const [turnSecondsLeft, setTurnSecondsLeft] = useState(TURN_SECONDS);
 
-  const activePlayer = players[activePlayerIndex] ?? players[0];
+  const activePlayer =
+    isOnlineGame && serverCurrentPlayerId
+      ? players.find((player) => String(player.id) === serverCurrentPlayerId) ?? players[activePlayerIndex] ?? players[0]
+      : players[activePlayerIndex] ?? players[0];
   const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? null;
   const cityById = useMemo(() => new Map(CITIES.map((city) => [city.id, city])), []);
-  const isMyTurn = !isOnlineGame || Boolean(activePlayer && localPlayerId && String(activePlayer.id) === String(localPlayerId));
+  const isMyTurn = isOnlineGame
+    ? Boolean(
+        serverCurrentPlayerId &&
+          localPlayerId &&
+          String(serverCurrentPlayerId) === String(localPlayerId) &&
+          connectionStatus === "connected",
+      )
+    : Boolean(activePlayer && activePlayer.isHuman);
   const currentCanClaim = Boolean(selectedRoute && activePlayer && isMyTurn && canClaimRoute(activePlayer, selectedRoute, selectedColor));
 
   const rankedPlayers = [...players].sort((a, b) => {
-    const aScore = a.score + completedTickets(a, routes);
-    const bScore = b.score + completedTickets(b, routes);
+    const aScore = isOnlineGame ? a.score : a.score + completedTickets(a, routes);
+    const bScore = isOnlineGame ? b.score : b.score + completedTickets(b, routes);
     return bScore - aScore;
   });
+
+  const ownPlayer = players.find((player) => player.isHuman) ?? players[0] ?? activePlayer;
 
   function addLog(text: string) {
     setLog((items) => [{ id: Date.now() + Math.random(), text }, ...items].slice(0, 12));
@@ -1118,6 +1316,25 @@ export default function GameBoard() {
   function applyServerGameState(state: GameState) {
     const routeMappings = buildServerRouteMappings(state.routes);
     serverRouteIdByLocalRouteIdRef.current = routeMappings.localToServer;
+
+    if (Array.isArray(state.market)) {
+      setMarket(state.market as CardColor[]);
+    }
+
+    if (typeof state.deck_count === "number") {
+      setDeck(Array.from({ length: state.deck_count }, () => "wild" as CardColor));
+    }
+
+    if (typeof state.cards_drawn_this_turn === "number") {
+      setCardsDrawnThisTurn(state.cards_drawn_this_turn);
+    }
+
+    const activeServerPlayerId = state.current_player_id ? String(state.current_player_id) : null;
+    setServerCurrentPlayerId(activeServerPlayerId);
+
+    const serverOwnPlayerId = state.own_player_id ? String(state.own_player_id) : localPlayerId;
+    const hasOwnHandPayload = Boolean(state.own_hand);
+    const ownHand = normalizeHand(state.own_hand as Partial<Record<CardColor, number>> | undefined);
 
     setRoutes((currentRoutes) =>
       currentRoutes.map((route) => {
@@ -1138,6 +1355,8 @@ export default function GameBoard() {
         const id = String(serverPlayer.id);
         const existing = existingById.get(id);
         const color = existing?.color ?? PLAYER_COLOR_ORDER[index] ?? "red";
+        const isOwnPlayer = serverOwnPlayerId ? id === serverOwnPlayerId : existing?.isHuman ?? index === 0;
+        const hand = isOwnPlayer && hasOwnHandPayload ? ownHand : existing?.hand ?? emptyHand();
 
         return {
           id,
@@ -1147,16 +1366,17 @@ export default function GameBoard() {
           colorHex: PLAYER_COLORS[color],
           score: serverPlayer.score ?? existing?.score ?? 0,
           trains: serverPlayer.train_cars_left ?? existing?.trains ?? 35,
-          hand: existing?.hand ?? emptyHand(),
+          hand,
+          handCount: isOwnPlayer ? handCount(hand) : Number(serverPlayer.hand_count ?? existing?.handCount ?? 0),
           tickets: existing?.tickets ?? [],
-          isHuman: localPlayerId ? id === localPlayerId : existing?.isHuman ?? index === 0,
+          isHuman: Boolean(isOwnPlayer),
           hasSelectedStartingTickets: existing?.hasSelectedStartingTickets ?? false,
         };
       });
 
       if (mappedPlayers.length === 0) return currentPlayers;
 
-      const localIndex = localPlayerId ? mappedPlayers.findIndex((player) => String(player.id) === localPlayerId) : -1;
+      const localIndex = serverOwnPlayerId ? mappedPlayers.findIndex((player) => String(player.id) === serverOwnPlayerId) : -1;
       const reorderedPlayers = [...mappedPlayers];
 
       if (localIndex > 0) {
@@ -1164,12 +1384,13 @@ export default function GameBoard() {
         reorderedPlayers.unshift(localPlayer);
       }
 
-      const activeServerPlayerId = state.current_player_id ? String(state.current_player_id) : null;
       const nextActiveIndex = activeServerPlayerId
         ? reorderedPlayers.findIndex((player) => String(player.id) === activeServerPlayerId)
-        : 0;
+        : -1;
 
-      setActivePlayerIndex(nextActiveIndex >= 0 ? nextActiveIndex : 0);
+      if (nextActiveIndex >= 0) {
+        setActivePlayerIndex(nextActiveIndex);
+      }
       return reorderedPlayers;
     });
   }
@@ -1178,7 +1399,9 @@ export default function GameBoard() {
     if (!gameId) return;
 
     try {
-      const state = await getGameState(gameId);
+      const state = isOnlineGame && playerToken
+        ? await getRealtimeGameState(gameId, playerToken)
+        : await getGameState(gameId);
       applyServerGameState(state);
     } catch (error) {
       if (!silent) {
@@ -1254,40 +1477,92 @@ export default function GameBoard() {
   }, [activePlayer?.id, activePlayerIndex]);
 
   useEffect(() => {
-    if (showStartingTicketSelection || !activePlayer) return;
+    if (showStartingTicketSelection || !activePlayer || gameFinished || gameLost) return;
 
     const timerId = window.setInterval(() => {
       setTurnSecondsLeft((seconds) => Math.max(0, seconds - 1));
     }, 1_000);
 
     return () => window.clearInterval(timerId);
-  }, [showStartingTicketSelection, activePlayer?.id]);
+  }, [showStartingTicketSelection, activePlayer?.id, gameFinished, gameLost]);
 
   useEffect(() => {
-    if (showStartingTicketSelection || turnSecondsLeft > 0 || !activePlayer) return;
+    if (showStartingTicketSelection || turnSecondsLeft > 0 || !activePlayer || gameFinished || gameLost) return;
 
     const expiredTurnKey = `${activePlayer.id}-${activePlayerIndex}`;
     if (handledExpiredTurnRef.current === expiredTurnKey) return;
 
     handledExpiredTurnRef.current = expiredTurnKey;
-    addLog(`${activePlayer.name}'s 90 seconds expired. Turn skipped.`);
 
     if (isOnlineGame) {
+      addLog(`${activePlayer.name}'s 90 seconds expired. Turn skipped.`);
+
       if (isMyTurn && gameId && playerToken) {
-        socketRef.current?.endTurn(playerToken);
-        endTurnOnServer(gameId, { player_token: playerToken })
-          .then(() => syncFromServer(true))
-          .catch(() => socketRef.current?.requestState());
+        const sent = socketRef.current?.endTurn(playerToken);
+        if (!sent) {
+          addLog("Cannot skip turn because WebSocket is not connected.");
+        }
       }
 
       return;
     }
 
+    if (activePlayer.isHuman) {
+      setGameLost(true);
+      setGameFinished(true);
+      addLog("Time's up. You lost the game.");
+      return;
+    }
+
+    addLog(`${activePlayer.name}'s 90 seconds expired. Turn skipped.`);
     nextTurn();
-  }, [turnSecondsLeft, showStartingTicketSelection, activePlayer?.id, activePlayerIndex, isOnlineGame, isMyTurn, gameId, playerToken]);
+  }, [turnSecondsLeft, showStartingTicketSelection, activePlayer?.id, activePlayerIndex, isOnlineGame, isMyTurn, gameId, playerToken, activePlayer?.isHuman, gameFinished, gameLost]);
+
+  function getNextFinalPlayerIndex(currentIndex: number, remainingIds: string[]): number | null {
+    if (remainingIds.length === 0) return null;
+
+    const totalPlayers = players.length;
+    let nextIndex = (currentIndex + 1) % totalPlayers;
+
+    for (let i = 0; i < totalPlayers; i += 1) {
+      if (remainingIds.includes(players[nextIndex].id)) return nextIndex;
+      nextIndex = (nextIndex + 1) % totalPlayers;
+    }
+
+    return null;
+  }
 
   function nextTurn() {
+    if (gameFinished || !activePlayer) return;
+
     setCardsDrawnThisTurn(0);
+
+    const shouldStartFinalRound = !finalRoundActive && activePlayer.trains <= 2;
+    const nextFinalRemaining = shouldStartFinalRound
+      ? players.filter((_, idx) => idx !== activePlayerIndex).map((player) => player.id)
+      : finalRoundRemaining;
+
+    if (shouldStartFinalRound) {
+      setFinalRoundActive(true);
+      setFinalRoundRemaining(nextFinalRemaining);
+      addLog("Last round begins! All other players get one final turn.");
+    }
+
+    if (shouldStartFinalRound || finalRoundActive) {
+      const nextIndex = getNextFinalPlayerIndex(activePlayerIndex, nextFinalRemaining);
+
+      if (nextIndex === null) {
+        setGameFinished(true);
+        addLog("Game over! Final round complete.");
+        return;
+      }
+
+      const nextPlayerId = players[nextIndex].id;
+      setFinalRoundRemaining((currentRemaining) => currentRemaining.filter((id) => id !== nextPlayerId));
+      setActivePlayerIndex(nextIndex);
+      return;
+    }
+
     setActivePlayerIndex((index) => (index + 1) % players.length);
   }
 
@@ -1300,8 +1575,19 @@ export default function GameBoard() {
   }
 
   function drawBlindCard() {
+    if (gameFinished) {
+      addLog("Game is over.");
+      return;
+    }
+
     if (!isMyTurn) {
       addLog("Wait for your turn.");
+      return;
+    }
+
+    if (isOnlineGame && gameId && playerToken) {
+      const sent = socketRef.current?.drawBlindCard(playerToken);
+      if (!sent) addLog("WebSocket is not connected. Cannot draw a card.");
       return;
     }
 
@@ -1326,8 +1612,19 @@ export default function GameBoard() {
   }
 
   function drawMarketCard(index: number) {
+    if (gameFinished) {
+      addLog("Game is over.");
+      return;
+    }
+
     if (!isMyTurn) {
       addLog("Wait for your turn.");
+      return;
+    }
+
+    if (isOnlineGame && gameId && playerToken) {
+      const sent = socketRef.current?.drawMarketCard(playerToken, index);
+      if (!sent) addLog("WebSocket is not connected. Cannot draw from market.");
       return;
     }
 
@@ -1361,7 +1658,145 @@ export default function GameBoard() {
     if (newDrawCount >= 2) nextTurn();
   }
 
+  function getBestClaimColor(player: Player, route: Route): CardColor | null {
+    if (route.color !== "gray") return route.color;
+
+    const candidates = [...CLAIM_COLORS].sort((a, b) => player.hand[b] - player.hand[a]);
+    for (const color of candidates) {
+      if (canClaimRoute(player, route, color)) return color;
+    }
+
+    return null;
+  }
+
+  function claimRouteLocally(route: Route, claimColor: CardColor) {
+    const requiredLocos = route.type === "ferry" ? route.ferryLocos ?? 1 : 0;
+
+    setRoutes((currentRoutes) =>
+      currentRoutes.map((currentRoute) =>
+        currentRoute.id === route.id ? { ...currentRoute, ownerId: activePlayer.id } : currentRoute,
+      ),
+    );
+
+    setPlayers((currentPlayers) =>
+      currentPlayers.map((player, index) =>
+        index === activePlayerIndex
+          ? {
+              ...player,
+              score: player.score + route.points,
+              trains: player.trains - route.length,
+              hand: spendCards(player.hand, claimColor, route.length, requiredLocos),
+            }
+          : player,
+      ),
+    );
+
+    addLog(`${activePlayer.name} claimed ${cityName(route.from)} → ${cityName(route.to)}.`);
+    setSelectedRouteId(null);
+    nextTurn();
+  }
+
+  function botDrawBlindCard() {
+    if (deck.length === 0) {
+      addLog("Deck is empty.");
+      nextTurn();
+      return;
+    }
+
+    const next = drawOne(deck);
+    if (!next.card) return;
+
+    setDeck(next.deck);
+    addCardToActivePlayer(next.card);
+
+    const newDrawCount = cardsDrawnThisTurn + 1;
+    setCardsDrawnThisTurn(newDrawCount);
+    addLog(`${activePlayer.name} drew a blind train card.`);
+
+    if (newDrawCount >= 2) nextTurn();
+  }
+
+  function botDrawMarketCard(index: number) {
+    const card = market[index];
+    if (!card) {
+      botDrawBlindCard();
+      return;
+    }
+
+    addCardToActivePlayer(card);
+    const remainingMarket = market.filter((_, itemIndex) => itemIndex !== index);
+    const refilled = refillMarket(deck, remainingMarket);
+
+    setDeck(refilled.deck);
+    setMarket(refilled.market);
+
+    const newDrawCount = cardsDrawnThisTurn + 1;
+    setCardsDrawnThisTurn(newDrawCount);
+    addLog(`${activePlayer.name} took ${CARD_META[card].label} from market.`);
+
+    if (card === "wild" || newDrawCount >= 2) nextTurn();
+  }
+
+  function getMarketCardThatHelpsClaim(player: Player): number {
+    return market.findIndex((card) => {
+      if (!card) return false;
+
+      const projectedHand = { ...player.hand, [card]: player.hand[card] + 1 };
+      return routes.some((route) => {
+        if (route.ownerId) return false;
+
+        const color = route.color !== "gray" ? route.color : getBestClaimColor({ ...player, hand: projectedHand }, route);
+        return color !== null && canClaimRoute({ ...player, hand: projectedHand }, route, color);
+      });
+    });
+  }
+
+  function performBotTurn() {
+    if (gameFinished || !activePlayer || activePlayer.isHuman) return;
+
+    const claimable = [...routes]
+      .filter((route) => !route.ownerId)
+      .sort((a, b) => b.points - a.points)
+      .find((route) => {
+        const color = getBestClaimColor(activePlayer, route);
+        return color !== null && canClaimRoute(activePlayer, route, color);
+      });
+
+    if (claimable) {
+      const claimColor = getBestClaimColor(activePlayer, claimable);
+      if (claimColor) {
+        claimRouteLocally(claimable, claimColor);
+      }
+      return;
+    }
+
+    if (cardsDrawnThisTurn < 2) {
+      const marketIndex = getMarketCardThatHelpsClaim(activePlayer);
+      if (marketIndex >= 0) {
+        botDrawMarketCard(marketIndex);
+        return;
+      }
+
+      botDrawBlindCard();
+      return;
+    }
+
+    nextTurn();
+  }
+
+  useEffect(() => {
+    if (isOnlineGame || showStartingTicketSelection || !activePlayer || activePlayer.isHuman || gameFinished || gameLost) return;
+
+    const botTimer = window.setTimeout(performBotTurn, 700);
+    return () => window.clearTimeout(botTimer);
+  }, [activePlayer?.id, activePlayerIndex, cardsDrawnThisTurn, showStartingTicketSelection, isOnlineGame, activePlayer?.isHuman, routes.length, deck.length, gameFinished, gameLost]);
+
   async function claimSelectedRoute() {
+    if (gameFinished) {
+      addLog("Game is over.");
+      return;
+    }
+
     if (!selectedRoute) {
       addLog("Select a route first.");
       return;
@@ -1390,20 +1825,17 @@ export default function GameBoard() {
 
       if (serverRouteId === undefined) {
         addLog("Cannot match this route with the server route id. Synchronizing again...");
-        await syncFromServer(true);
+        socketRef.current?.requestState();
         return;
       }
 
-      try {
-        await claimRouteOnServer(gameId, { player_token: playerToken, route_id: serverRouteId });
-        socketRef.current?.requestState();
-        await syncFromServer(true);
-        addLog(`${activePlayer.name} claimed ${cityName(selectedRoute.from)} → ${cityName(selectedRoute.to)}.`);
-        setSelectedRouteId(null);
-      } catch (error) {
-        addLog(error instanceof Error ? error.message : "Could not claim route on server.");
+      const sent = socketRef.current?.claimRoute(playerToken, serverRouteId, claimColor);
+      if (!sent) {
+        addLog("WebSocket is not connected. Cannot claim route.");
+        return;
       }
 
+      setSelectedRouteId(null);
       return;
     }
 
@@ -1478,6 +1910,7 @@ export default function GameBoard() {
 
   function resetGame() {
     clearStartingTickets(startingTicketsStorageKey);
+    clearLocalGameState();
     const newDeck = makeDeck();
     const newTicketDeck = shuffle(INITIAL_TICKETS);
     const newPrepared = createPlayers(newDeck, newTicketDeck);
@@ -1492,6 +1925,10 @@ export default function GameBoard() {
     setSelectedRouteId(null);
     setSelectedColor("red");
     setCardsDrawnThisTurn(0);
+    setFinalRoundActive(false);
+    setFinalRoundRemaining([]);
+    setGameFinished(false);
+    setGameLost(false);
     setStartingTicketOffer(newPrepared.humanTicketOffer);
     setSelectedStartingTicketIds([
       ticketId(newPrepared.humanTicketOffer.longTicket),
@@ -1533,19 +1970,21 @@ export default function GameBoard() {
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             {players.map((player, index) => {
-              const ticketPoints = completedTickets(player, routes);
-              const totalScore = player.score + ticketPoints;
+              const ticketPoints = player.isHuman ? completedTickets(player, routes) : 0;
+              const totalScore = isOnlineGame ? player.score : player.score + ticketPoints;
+              const visibleCardCount = player.isHuman ? handCount(player.hand) : player.handCount ?? handCount(player.hand);
 
               return (
                 <button
                   key={player.id}
                   type="button"
-                  onClick={() => !isOnlineGame && setActivePlayerIndex(index)}
+                  onClick={() => !isOnlineGame && !isLocalBotGame ? setActivePlayerIndex(index) : undefined}
+                  disabled={player.isHuman ? false : true}
                   className={`rounded-3xl border p-4 text-left shadow-2xl shadow-black/30 backdrop-blur-xl transition hover:-translate-y-0.5 ${
                     index === activePlayerIndex
                       ? "border-white/25 bg-slate-800/95 ring-2 ring-white/15"
                       : "border-white/10 bg-slate-950/75 hover:bg-slate-800/90"
-                  }`}
+                  } ${player.isHuman ? "" : "cursor-not-allowed opacity-60"}`}
                 >
                   <div className="flex items-center gap-3">
                     <span
@@ -1563,9 +2002,9 @@ export default function GameBoard() {
                   <div className="mt-4 grid grid-cols-2 gap-2 text-sm font-bold text-slate-400">
                     <span className="col-span-2 text-2xl font-light text-slate-50">{totalScore.toLocaleString()} pts</span>
                     <span>{player.trains} trains</span>
-                    <span>{handCount(player.hand)} cards</span>
+                    <span>{visibleCardCount} cards</span>
                     <span className="col-span-2 text-xs text-slate-500">
-                      routes {player.score} + tickets {ticketPoints}
+                      {isOnlineGame && !player.isHuman ? "route points only" : `routes ${player.score} + tickets ${ticketPoints}`}
                     </span>
                     <span className="col-span-2 text-xs text-emerald-300">
                       {player.isHuman ? `${player.tickets.length} hidden tickets` : "Tickets hidden"}
@@ -1584,7 +2023,7 @@ export default function GameBoard() {
                   <span className="font-bold">
                     {index + 1}. {player.name}
                   </span>
-                  <span className="font-black">{player.score + completedTickets(player, routes)}</span>
+                  <span className="font-black">{isOnlineGame ? player.score : player.score + completedTickets(player, routes)}</span>
                 </div>
               ))}
             </div>
@@ -1601,7 +2040,11 @@ export default function GameBoard() {
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <div className={`rounded-full px-4 py-2 text-sm font-black ${isMyTurn ? "bg-emerald-500 text-white" : "bg-slate-900 text-white"}`}>
-                {isMyTurn ? "Your turn" : `${activePlayer.name}'s turn`}
+                {isOnlineGame && !serverCurrentPlayerId
+                  ? "Waiting for server turn"
+                  : isMyTurn
+                  ? "Your turn"
+                  : `${activePlayer.name}'s turn`}
               </div>
               <div className={`rounded-full px-4 py-2 text-sm font-black ${turnSecondsLeft <= 15 ? "bg-red-600 text-white" : "bg-slate-900 text-white"}`}>
                 ⏱ {turnSecondsLeft}s
@@ -1616,6 +2059,41 @@ export default function GameBoard() {
               )}
             </div>
           </div>
+
+          {(gameLost || gameFinished) && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6">
+              <div className="w-full max-w-2xl rounded-[2rem] border border-white/10 bg-slate-950/95 p-8 text-center shadow-2xl shadow-black/60 backdrop-blur-xl">
+                <div className="mb-3 text-sm font-black uppercase tracking-[0.28em] text-rose-400">
+                  {gameLost ? "Time expired" : "Final round complete"}
+                </div>
+                <h2 className="mb-4 text-3xl font-black text-white">
+                  {gameLost ? "You lost the round" : "Game finished"}
+                </h2>
+                <p className="mx-auto max-w-xl text-sm leading-6 text-slate-300">
+                  {gameLost
+                    ? "Your turn timer ran out. The opponent gets the win."
+                    : "The last player finished their turn. Review the results and try again."}
+                </p>
+
+                <div className="mt-6 space-y-3 text-left">
+                  {rankedPlayers.map((player, index) => (
+                    <div key={player.id} className="flex items-center justify-between rounded-3xl bg-white/5 px-5 py-3 text-sm text-slate-200">
+                      <span>{index + 1}. {player.name}</span>
+                      <span className="font-black text-emerald-300">{player.score + completedTickets(player, routes)}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={resetGame}
+                  className="mt-8 inline-flex rounded-full bg-emerald-500 px-6 py-3 text-sm font-black text-white transition hover:bg-emerald-400"
+                >
+                  Play again
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="overflow-auto p-2">
             <svg viewBox="0 0 100 75" className="min-h-[620px] w-full min-w-[820px] rounded-[1.5rem] bg-[#cfe1c5]">
@@ -1688,7 +2166,14 @@ export default function GameBoard() {
                 });
 
                 return (
-                  <g key={route.id} className="cursor-pointer" onClick={() => setSelectedRouteId(route.id)}>
+                  <g
+                  key={route.id}
+                  className={`cursor-pointer ${!isMyTurn ? "cursor-not-allowed opacity-70" : ""}`}
+                  onClick={() => {
+                    if (!isMyTurn) return;
+                    setSelectedRouteId(route.id);
+                  }}
+                >
                     <line
                       x1={geometry.x1}
                       y1={geometry.y1}
@@ -1811,12 +2296,12 @@ export default function GameBoard() {
 
           <section className="rounded-3xl border border-white/10 bg-slate-950/75 p-4 shadow-2xl shadow-black/30">
             <h2 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-slate-400">
-              {activePlayer.name}'s hand
+              Your hand
             </h2>
             <div className="grid grid-cols-3 gap-2">
               {CARD_COLORS.map((color) => (
                 <div key={color} className={`rounded-2xl px-3 py-2 text-center text-xs font-black ${CARD_META[color].miniClassName}`}>
-                  {CARD_META[color].label}: {activePlayer.hand[color]}
+                  {CARD_META[color].label}: {ownPlayer?.hand[color] ?? 0}
                 </div>
               ))}
             </div>

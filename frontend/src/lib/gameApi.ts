@@ -1,9 +1,23 @@
+export type CardColor =
+  | "red"
+  | "blue"
+  | "green"
+  | "yellow"
+  | "black"
+  | "white"
+  | "orange"
+  | "pink"
+  | "wild";
+
+export type PlayerHand = Record<CardColor, number>;
+
 export type GamePlayer = {
   id: string;
   name: string;
   score: number;
   train_cars_left: number;
   turn_order: number;
+  hand_count?: number;
 };
 
 export type GameRoute = {
@@ -32,6 +46,11 @@ export type GameState = {
   players: GamePlayer[];
   routes: GameRoute[];
   turns: GameTurn[];
+  deck_count?: number;
+  market?: CardColor[];
+  cards_drawn_this_turn?: number;
+  own_player_id?: string | null;
+  own_hand?: PlayerHand;
 };
 
 export type CreateGamePayload = {
@@ -51,6 +70,7 @@ export type StartGamePayload = {
 export type ClaimRoutePayload = {
   player_token: string;
   route_id: number;
+  claim_color?: CardColor;
 };
 
 export type EndTurnPayload = {
@@ -87,6 +107,13 @@ export function getGameState(gameId: string) {
   return requestJson<GameState>(`/v1/games/${gameId}`, { method: "GET" });
 }
 
+export function getRealtimeGameState(gameId: string, playerToken: string) {
+  return requestJson<GameState>(
+    `/v1/realtime/games/${gameId}/state?token=${encodeURIComponent(playerToken)}`,
+    { method: "GET" },
+  );
+}
+
 export function startGame(gameId: string, payload: StartGamePayload) {
   return requestJson<void>(`/v1/games/${gameId}/start`, {
     method: "POST",
@@ -107,4 +134,3 @@ export function endTurn(gameId: string, payload: EndTurnPayload) {
     body: JSON.stringify(payload),
   });
 }
-

@@ -15,6 +15,12 @@ function buildWsUrl(gameId: string, token: string): string {
   return `${protocol}//${window.location.host}/api/v1/realtime/games/${gameId}?token=${encodeURIComponent(token)}`;
 }
 
+function sendIfOpen(socket: WebSocket, payload: unknown): boolean {
+  if (socket.readyState !== WebSocket.OPEN) return false;
+  socket.send(JSON.stringify(payload));
+  return true;
+}
+
 export function connectGameSocket(
   gameId: string,
   token: string,
@@ -40,17 +46,32 @@ export function connectGameSocket(
 
   return {
     socket,
-    ping: () => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: "ping" })),
-    requestState: () => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: "request_state" })),
-    startGame: (hostToken: string) =>
-      socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: "start_game", host_token: hostToken })),
-    claimRoute: (playerToken: string, routeId: number) =>
-      socket.readyState === WebSocket.OPEN &&
-      socket.send(JSON.stringify({ type: "claim_route", player_token: playerToken, route_id: routeId })),
+    ping: () => sendIfOpen(socket, { type: "ping" }),
+    requestState: () => sendIfOpen(socket, { type: "request_state" }),
+    startGame: (hostToken: string) => sendIfOpen(socket, { type: "start_game", host_token: hostToken }),
+    claimRoute: (playerToken: string, routeId: number, claimColor: string) =>
+      sendIfOpen(socket, {
+        type: "claim_route",
+        player_token: playerToken,
+        route_id: routeId,
+        claim_color: claimColor,
+      }),
+    drawBlindCard: (playerToken: string) =>
+      sendIfOpen(socket, {
+        type: "draw_blind_card",
+        player_token: playerToken,
+      }),
+    drawMarketCard: (playerToken: string, marketIndex: number) =>
+      sendIfOpen(socket, {
+        type: "draw_market_card",
+        player_token: playerToken,
+        market_index: marketIndex,
+      }),
     endTurn: (playerToken: string) =>
-      socket.readyState === WebSocket.OPEN &&
-      socket.send(JSON.stringify({ type: "end_turn", player_token: playerToken })),
+      sendIfOpen(socket, {
+        type: "end_turn",
+        player_token: playerToken,
+      }),
     close: () => socket.close(),
   };
 }
-
