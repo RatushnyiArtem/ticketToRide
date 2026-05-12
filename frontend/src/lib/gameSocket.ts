@@ -17,8 +17,13 @@ function buildWsUrl(gameId: string, token: string): string {
 
 function sendIfOpen(socket: WebSocket, payload: unknown): boolean {
   if (socket.readyState !== WebSocket.OPEN) return false;
-  socket.send(JSON.stringify(payload));
-  return true;
+  try {
+    socket.send(JSON.stringify(payload));
+    return true;
+  } catch (error) {
+    console.error('Error sending WebSocket message:', error);
+    return false;
+  }
 }
 
 export function connectGameSocket(
@@ -31,15 +36,33 @@ export function connectGameSocket(
     onMessage?: (event: GameSocketEvent) => void;
   },
 ) {
-  const socket = new WebSocket(buildWsUrl(gameId, token));
+  const wsUrl = buildWsUrl(gameId, token);
+  console.log('Connecting to WebSocket:', wsUrl);
 
-  socket.onopen = () => handlers.onOpen?.();
-  socket.onclose = (event) => handlers.onClose?.(event);
-  socket.onerror = () => handlers.onError?.("WebSocket connection error");
+  const socket = new WebSocket(wsUrl);
+
+  // Set longer timeouts for connection
+  socket.onopen = () => {
+    console.log('WebSocket connected');
+    handlers.onOpen?.();
+  };
+
+  socket.onclose = (event) => {
+    console.log('WebSocket closed:', event.code, event.reason);
+    handlers.onClose?.(event);
+  };
+
+  socket.onerror = (event) => {
+    const errorMsg = event instanceof Event ? 'WebSocket connection error' : String(event);
+    console.error('WebSocket error:', errorMsg, event);
+    handlers.onError?.(errorMsg);
+  };
+
   socket.onmessage = (event) => {
     try {
       handlers.onMessage?.(JSON.parse(event.data) as GameSocketEvent);
-    } catch {
+    } catch (error) {
+      console.error('Failed to parse WebSocket message:', error);
       handlers.onError?.("Invalid WebSocket message");
     }
   };

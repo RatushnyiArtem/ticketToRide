@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+import logging
 
 from app.db.session import get_db
 from app.models import Player
@@ -9,10 +10,15 @@ from app.services.game_service import get_realtime_game_state
 from app.services.realtime_manager import realtime_manager
 
 router = APIRouter(prefix="/realtime", tags=["realtime"])
+logger = logging.getLogger(__name__)
 
 
 async def _send_error(websocket: WebSocket, detail: str) -> None:
-    await websocket.send_json({"type": "error", "payload": {"detail": detail}})
+    try:
+        await websocket.send_json({"type": "error", "payload": {"detail": detail}})
+    except Exception as exc:
+        logger.warning(f"Error sending error message: {exc}")
+
 
 
 async def _send_personal_state(websocket: WebSocket, game_id: str, db: Session, token: str) -> None:
@@ -119,8 +125,11 @@ async def game_ws(
 ):
     player = db.scalar(select(Player).where(Player.game_id == game_id, Player.token == token))
     if not player:
+        logger.warning(f"WebSocket connection rejected: invalid token for game {game_id}")
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+
+    logger.info(f"WebSocket connection established for player {player.id} in game {game_id}")
 
     await realtime_manager.connect(game_id, websocket, player_id=str(player.id), token=token)
 
@@ -129,14 +138,20 @@ async def game_ws(
         await realtime_manager.broadcast_presence(game_id)
 
         while True:
-            message = await websocket.receive_json()
-            await _handle_action(websocket, game_id, db, token, message)
+            try:
+                message = await websocket.receive_json()
+                await _handle_action(websocket, game_id, db, token, message)
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected for player {player.id} in game {game_id}")
+                break
 
     except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for player {player.id} in game {game_id}")
         realtime_manager.disconnect(game_id, websocket)
         await realtime_manager.broadcast_presence(game_id)
 
     except Exception as exc:
+        logger.error(f"WebSocket error for player {player.id} in game {game_id}: {exc}", exc_info=True)
         realtime_manager.disconnect(game_id, websocket)
         await realtime_manager.broadcast_presence(game_id)
         try:
