@@ -1354,6 +1354,8 @@ export default function GameBoard() {
     const hasOwnHandPayload = Boolean(state.own_hand);
     const ownHand = normalizeHand(state.own_hand as Partial<Record<CardColor, number>> | undefined);
 
+    setGameFinished(state.status === "finished");
+
     setRoutes((currentRoutes) =>
       currentRoutes.map((route) => {
         if (!(route.id in routeMappings.claimedByLocalRouteId)) return route;
