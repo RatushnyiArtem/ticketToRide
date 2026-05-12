@@ -445,6 +445,7 @@ function serverCityToCityId(value: string): CityId | null {
   const normalized = normalizeServerText(value);
   const aliases: Record<string, CityId> = {
     kobenhavn: "copenhagen",
+    kbenhavn: "copenhagen",
     copenhagen: "copenhagen",
     moskva: "moscow",
     moscow: "moscow",
@@ -460,6 +461,10 @@ function serverCityToCityId(value: string): CityId | null {
     athens: "athens",
     zagrab: "zagreb",
     zagreb: "zagreb",
+    venice: "venezia",
+    venezia: "venezia",
+    rome: "roma",
+    roma: "roma",
   };
 
   if (aliases[normalized]) return aliases[normalized];
@@ -489,18 +494,25 @@ function buildServerRouteMappings(serverRoutes: ServerGameRoute[]): {
   const usedLocalRouteIds = new Set<string>();
   const localToServer: Record<string, number> = {};
   const claimedByLocalRouteId: Record<string, string | null> = {};
+  const unmatchedRoutes: ServerGameRoute[] = [];
 
   serverRoutes.forEach((serverRoute) => {
     const from = serverCityToCityId(serverRoute.city_a);
     const to = serverCityToCityId(serverRoute.city_b);
 
-    if (!from || !to) return;
+    if (!from || !to) {
+      unmatchedRoutes.push(serverRoute);
+      return;
+    }
 
     const key = makeRouteMatchKey(from, to, serverRoute.length);
     const candidates = localGroups.get(key) ?? [];
     const localRoute = candidates.find((candidate) => !usedLocalRouteIds.has(candidate.id));
 
-    if (!localRoute) return;
+    if (!localRoute) {
+      unmatchedRoutes.push(serverRoute);
+      return;
+    }
 
     usedLocalRouteIds.add(localRoute.id);
     localToServer[localRoute.id] = serverRoute.id;
@@ -508,6 +520,11 @@ function buildServerRouteMappings(serverRoutes: ServerGameRoute[]): {
       ? String(serverRoute.claimed_by_player_id)
       : null;
   });
+
+  // Log unmatched routes for debugging
+  if (unmatchedRoutes.length > 0) {
+    console.warn("Unmatched server routes:", unmatchedRoutes);
+  }
 
   return { localToServer, claimedByLocalRouteId };
 }
@@ -1351,11 +1368,11 @@ export default function GameBoard() {
       const existingById = new Map(currentPlayers.map((player) => [String(player.id), player]));
       const serverPlayers = [...state.players].sort((a, b) => a.turn_order - b.turn_order);
 
-      const mappedPlayers: Player[] = serverPlayers.map((serverPlayer, index) => {
-        const id = String(serverPlayer.id);
-        const existing = existingById.get(id);
-        const color = existing?.color ?? PLAYER_COLOR_ORDER[index] ?? "red";
-        const isOwnPlayer = serverOwnPlayerId ? id === serverOwnPlayerId : existing?.isHuman ?? index === 0;
+       const mappedPlayers: Player[] = serverPlayers.map((serverPlayer, index) => {
+         const id = String(serverPlayer.id);
+         const existing = existingById.get(id);
+         const color = PLAYER_COLOR_ORDER[index] ?? "red";
+         const isOwnPlayer = serverOwnPlayerId ? id === serverOwnPlayerId : existing?.isHuman ?? index === 0;
         const hand = isOwnPlayer && hasOwnHandPayload ? ownHand : existing?.hand ?? emptyHand();
 
         return {
@@ -1791,75 +1808,80 @@ export default function GameBoard() {
     return () => window.clearTimeout(botTimer);
   }, [activePlayer?.id, activePlayerIndex, cardsDrawnThisTurn, showStartingTicketSelection, isOnlineGame, activePlayer?.isHuman, routes.length, deck.length, gameFinished, gameLost]);
 
-  async function claimSelectedRoute() {
-    if (gameFinished) {
-      addLog("Game is over.");
-      return;
-    }
+   async function claimSelectedRoute() {
+     if (gameFinished) {
+       addLog("Game is over.");
+       return;
+     }
 
-    if (!selectedRoute) {
-      addLog("Select a route first.");
-      return;
-    }
+     if (!selectedRoute) {
+       addLog("Select a route first.");
+       return;
+     }
 
-    if (!isMyTurn) {
-      addLog("Wait for your turn.");
-      return;
-    }
+     if (!isMyTurn) {
+       addLog("Wait for your turn.");
+       return;
+     }
 
-    if (selectedRoute.ownerId) {
-      addLog("This route has already been claimed.");
-      return;
-    }
+     if (selectedRoute.ownerId) {
+       addLog("This route has already been claimed.");
+       return;
+     }
 
-    if (!currentCanClaim) {
-      addLog(`${activePlayer.name} does not have enough cards or trains for this route.`);
-      return;
-    }
+     if (!currentCanClaim) {
+       addLog(`${activePlayer.name} does not have enough cards or trains for this route.`);
+       return;
+     }
 
-    const claimColor = getClaimColor(selectedRoute, selectedColor);
-    const requiredLocos = selectedRoute.type === "ferry" ? selectedRoute.ferryLocos ?? 1 : 0;
+     const claimColor = getClaimColor(selectedRoute, selectedColor);
+     const requiredLocos = selectedRoute.type === "ferry" ? selectedRoute.ferryLocos ?? 1 : 0;
 
-    if (isOnlineGame && gameId && playerToken) {
-      const serverRouteId = serverRouteIdByLocalRouteIdRef.current[selectedRoute.id];
+     if (isOnlineGame && gameId && playerToken) {
+       const serverRouteId = serverRouteIdByLocalRouteIdRef.current[selectedRoute.id];
 
-      if (serverRouteId === undefined) {
-        addLog("Cannot match this route with the server route id. Synchronizing again...");
-        socketRef.current?.requestState();
-        return;
-      }
+       if (serverRouteId === undefined) {
+         console.warn(
+           `Cannot find server route ID for local route: ${selectedRoute.id}`,
+           "Local to server mappings:",
+           serverRouteIdByLocalRouteIdRef.current
+         );
+         addLog("Cannot match this route with the server route id. Synchronizing again...");
+         await syncFromServer(false);
+         return;
+       }
 
-      const sent = socketRef.current?.claimRoute(playerToken, serverRouteId, claimColor);
-      if (!sent) {
-        addLog("WebSocket is not connected. Cannot claim route.");
-        return;
-      }
+       const sent = socketRef.current?.claimRoute(playerToken, serverRouteId, claimColor);
+       if (!sent) {
+         addLog("WebSocket is not connected. Cannot claim route.");
+         return;
+       }
 
-      setSelectedRouteId(null);
-      return;
-    }
+       setSelectedRouteId(null);
+       return;
+     }
 
-    setRoutes((currentRoutes) =>
-      currentRoutes.map((route) => (route.id === selectedRoute.id ? { ...route, ownerId: activePlayer.id } : route)),
-    );
+     setRoutes((currentRoutes) =>
+       currentRoutes.map((route) => (route.id === selectedRoute.id ? { ...route, ownerId: activePlayer.id } : route)),
+     );
 
-    setPlayers((currentPlayers) =>
-      currentPlayers.map((player, index) =>
-        index === activePlayerIndex
-          ? {
-              ...player,
-              score: player.score + selectedRoute.points,
-              trains: player.trains - selectedRoute.length,
-              hand: spendCards(player.hand, claimColor, selectedRoute.length, requiredLocos),
-            }
-          : player,
-      ),
-    );
+     setPlayers((currentPlayers) =>
+       currentPlayers.map((player, index) =>
+         index === activePlayerIndex
+           ? {
+               ...player,
+               score: player.score + selectedRoute.points,
+               trains: player.trains - selectedRoute.length,
+               hand: spendCards(player.hand, claimColor, selectedRoute.length, requiredLocos),
+             }
+           : player,
+       ),
+     );
 
-    addLog(`${activePlayer.name} claimed ${cityName(selectedRoute.from)} → ${cityName(selectedRoute.to)}.`);
-    setSelectedRouteId(null);
-    nextTurn();
-  }
+     addLog(`${activePlayer.name} claimed ${cityName(selectedRoute.from)} → ${cityName(selectedRoute.to)}.`);
+     setSelectedRouteId(null);
+     nextTurn();
+   }
 
   function toggleStartingTicket(ticket: Ticket) {
     if (ticket.type === "long") return;

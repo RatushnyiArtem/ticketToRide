@@ -23,6 +23,7 @@ class StartGameRequest(BaseModel):
 class ClaimRouteRequest(BaseModel):
     player_token: str
     route_id: int
+    claim_color: str | None = None
 
 
 class PlayerResponse(BaseModel):

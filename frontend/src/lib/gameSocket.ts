@@ -5,14 +5,38 @@ export type GameSocketEvent = {
 
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL;
 
-function buildWsUrl(gameId: string, token: string): string {
+function normalizeWebSocketBaseUrl(baseUrl: string): string {
+  const normalizedBase = baseUrl.replace(/\/$/, "");
+
+  if (normalizedBase.startsWith("http://")) {
+    return `ws://${normalizedBase.slice("http://".length)}`;
+  }
+
+  if (normalizedBase.startsWith("https://")) {
+    return `wss://${normalizedBase.slice("https://".length)}`;
+  }
+
+  return normalizedBase;
+}
+
+function resolveWebSocketBaseUrl(): string {
   if (WS_BASE_URL) {
-    const normalizedBase = WS_BASE_URL.replace(/\/$/, "");
-    return `${normalizedBase}/api/v1/realtime/games/${gameId}?token=${encodeURIComponent(token)}`;
+    return normalizeWebSocketBaseUrl(WS_BASE_URL);
+  }
+
+  // In local development, talk to FastAPI directly so the browser does not
+  // rely on Vite's ws proxy (which is where ECONNABORTED was coming from).
+  if (import.meta.env.DEV) {
+    return "ws://127.0.0.1:8000";
   }
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/v1/realtime/games/${gameId}?token=${encodeURIComponent(token)}`;
+  return `${protocol}//${window.location.host}`;
+}
+
+function buildWsUrl(gameId: string, token: string): string {
+  const baseUrl = resolveWebSocketBaseUrl();
+  return `${baseUrl}/api/v1/realtime/games/${gameId}?token=${encodeURIComponent(token)}`;
 }
 
 function sendIfOpen(socket: WebSocket, payload: unknown): boolean {
@@ -72,12 +96,12 @@ export function connectGameSocket(
     ping: () => sendIfOpen(socket, { type: "ping" }),
     requestState: () => sendIfOpen(socket, { type: "request_state" }),
     startGame: (hostToken: string) => sendIfOpen(socket, { type: "start_game", host_token: hostToken }),
-    claimRoute: (playerToken: string, routeId: number, claimColor: string) =>
+    claimRoute: (playerToken: string, routeId: number, claimColor?: string) =>
       sendIfOpen(socket, {
         type: "claim_route",
         player_token: playerToken,
         route_id: routeId,
-        claim_color: claimColor,
+        ...(claimColor ? { claim_color: claimColor } : {}),
       }),
     drawBlindCard: (playerToken: string) =>
       sendIfOpen(socket, {

@@ -14,7 +14,7 @@ Quick flow:
 Development proxy:
 
 - `vite.config.ts` proxies `/api` to `http://127.0.0.1:8000`
-- WebSocket connections use the same `/api` prefix in dev
+- WebSocket connections now default to a direct backend URL in dev to avoid Vite ws proxy disconnects
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

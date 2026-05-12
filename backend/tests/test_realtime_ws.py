@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.db.session import init_db
 from app.main import app
+from app.services.route_utils import find_route_id, pick_claim_color
 
 
 def test_websocket_receives_live_game_updates():
@@ -33,7 +34,17 @@ def test_websocket_receives_live_game_updates():
             assert started_state["payload"]["status"] == "started"
             assert started_state["payload"]["current_player_id"] == host["player_id"]
 
-            ws.send_json({"type": "claim_route", "player_token": host["player_token"], "route_id": 1})
+            route_id = find_route_id(started_state["payload"]["routes"], "vienna", "budapest", 1)
+            claim_color = pick_claim_color(started_state["payload"]["own_hand"])
+
+            ws.send_json(
+                {
+                    "type": "claim_route",
+                    "player_token": host["player_token"],
+                    "route_id": route_id,
+                    "claim_color": claim_color,
+                }
+            )
             claimed_state = ws.receive_json()
             assert claimed_state["type"] == "game_state"
             assert claimed_state["payload"]["current_player_id"] == player2["player_id"]

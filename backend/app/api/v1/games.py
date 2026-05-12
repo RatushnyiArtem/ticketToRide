@@ -77,7 +77,7 @@ def get_state(game_id: str, db: Session = Depends(get_db)):
 
 @router.post("/{game_id}/claim-route", status_code=status.HTTP_204_NO_CONTENT)
 async def claim_route(game_id: str, request: ClaimRouteRequest, db: Session = Depends(get_db)):
-    game_service.claim_route(db, game_id, request.player_token, request.route_id)
+    game_service.claim_route(db, game_id, request.player_token, request.route_id, request.claim_color)
     await realtime_manager.broadcast_game_state(game_id, game_service.get_game_state(db, game_id).model_dump(mode="json"))
     return None
 
