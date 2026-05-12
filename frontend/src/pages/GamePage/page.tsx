@@ -1211,6 +1211,7 @@ export default function GameBoard() {
   const [finalRoundRemaining, setFinalRoundRemaining] = useState<string[]>(localGameState?.finalRoundRemaining ?? []);
   const [gameFinished, setGameFinished] = useState(localGameState?.gameFinished ?? false);
   const [gameLost, setGameLost] = useState(localGameState?.gameLost ?? false);
+  const [revealedPlaces, setRevealedPlaces] = useState(0);
   const [log, setLog] = useState<LogItem[]>(
     localGameState?.log ?? [
       {
@@ -1512,12 +1513,13 @@ export default function GameBoard() {
     handledExpiredTurnRef.current = expiredTurnKey;
 
     if (isOnlineGame) {
-      addLog(`${activePlayer.name}'s 90 seconds expired. Turn skipped.`);
+      addLog(`${activePlayer.name}'s 90 seconds expired. Game over.`);
+      setGameFinished(true);
 
       if (isMyTurn && gameId && playerToken) {
         const sent = socketRef.current?.endTurn(playerToken);
         if (!sent) {
-          addLog("Cannot skip turn because WebSocket is not connected.");
+          addLog("Cannot end turn because WebSocket is not connected.");
         }
       }
 
@@ -1525,15 +1527,30 @@ export default function GameBoard() {
     }
 
     if (activePlayer.isHuman) {
-      setGameLost(true);
+      addLog("Time's up. Game over.");
       setGameFinished(true);
-      addLog("Time's up. You lost the game.");
       return;
     }
 
-    addLog(`${activePlayer.name}'s 90 seconds expired. Turn skipped.`);
-    nextTurn();
+    addLog(`${activePlayer.name}'s 90 seconds expired. Game over.`);
+    setGameFinished(true);
   }, [turnSecondsLeft, showStartingTicketSelection, activePlayer?.id, activePlayerIndex, isOnlineGame, isMyTurn, gameId, playerToken, activePlayer?.isHuman, gameFinished, gameLost]);
+
+  useEffect(() => {
+    if (!gameFinished) {
+      setRevealedPlaces(0);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setRevealedPlaces((prev) => {
+        if (prev >= players.length) return prev;
+        return prev + 1;
+      });
+    }, 1500);
+
+    return () => window.clearInterval(interval);
+  }, [gameFinished, players.length]);
 
   function getNextFinalPlayerIndex(currentIndex: number, remainingIds: string[]): number | null {
     if (remainingIds.length === 0) return null;
@@ -1554,7 +1571,7 @@ export default function GameBoard() {
 
     setCardsDrawnThisTurn(0);
 
-    const shouldStartFinalRound = !finalRoundActive && activePlayer.trains <= 2;
+    const shouldStartFinalRound = !finalRoundActive && activePlayer.trains <= 1;
     const nextFinalRemaining = shouldStartFinalRound
       ? players.filter((_, idx) => idx !== activePlayerIndex).map((player) => player.id)
       : finalRoundRemaining;
@@ -1981,13 +1998,15 @@ export default function GameBoard() {
               <h1 className="text-2xl font-black leading-tight">Ticket to Ride Europe</h1>
               <p className="mt-1 text-xs uppercase tracking-[0.22em] text-white/50">Lobby players + hidden tickets</p>
             </div>
-            <button
-              type="button"
-              onClick={resetGame}
-              className="rounded-full bg-white/20 px-4 py-2 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-white/30"
-            >
-              Reset
-            </button>
+            {!isOnlineGame && (
+              <button
+                type="button"
+                onClick={resetGame}
+                className="rounded-full bg-white/20 px-4 py-2 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-white/30"
+              >
+                Reset
+              </button>
+            )}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
@@ -2082,23 +2101,21 @@ export default function GameBoard() {
             </div>
           </div>
 
-          {(gameLost || gameFinished) && (
+          {gameFinished && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6">
               <div className="w-full max-w-2xl rounded-[2rem] border border-white/10 bg-slate-950/95 p-8 text-center shadow-2xl shadow-black/60 backdrop-blur-xl">
                 <div className="mb-3 text-sm font-black uppercase tracking-[0.28em] text-rose-400">
-                  {gameLost ? "Time expired" : "Final round complete"}
+                  Game Over
                 </div>
                 <h2 className="mb-4 text-3xl font-black text-white">
-                  {gameLost ? "You lost the round" : "Game finished"}
+                  Final Results
                 </h2>
                 <p className="mx-auto max-w-xl text-sm leading-6 text-slate-300">
-                  {gameLost
-                    ? "Your turn timer ran out. The opponent gets the win."
-                    : "The last player finished their turn. Review the results and try again."}
+                  The game has ended. Here are the final standings.
                 </p>
 
                 <div className="mt-6 space-y-3 text-left">
-                  {rankedPlayers.map((player, index) => (
+                  {rankedPlayers.slice(0, revealedPlaces).map((player, index) => (
                     <div key={player.id} className="flex items-center justify-between rounded-3xl bg-white/5 px-5 py-3 text-sm text-slate-200">
                       <span>{index + 1}. {player.name}</span>
                       <span className="font-black text-emerald-300">{player.score + completedTickets(player, routes)}</span>
@@ -2106,13 +2123,24 @@ export default function GameBoard() {
                   ))}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={resetGame}
-                  className="mt-8 inline-flex rounded-full bg-emerald-500 px-6 py-3 text-sm font-black text-white transition hover:bg-emerald-400"
-                >
-                  Play again
-                </button>
+                <div className="mt-8 flex gap-4 justify-center">
+                  {!isOnlineGame && (
+                    <button
+                      type="button"
+                      onClick={resetGame}
+                      className="inline-flex rounded-full bg-emerald-500 px-6 py-3 text-sm font-black text-white transition hover:bg-emerald-400"
+                    >
+                      Play again
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => window.location.href = '/lobby'}
+                    className="inline-flex rounded-full bg-blue-500 px-6 py-3 text-sm font-black text-white transition hover:bg-blue-400"
+                  >
+                    Back to Lobby
+                  </button>
+                </div>
               </div>
             </div>
           )}
