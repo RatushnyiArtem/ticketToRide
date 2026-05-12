@@ -119,6 +119,11 @@ export function connectGameSocket(
         type: "end_turn",
         player_token: playerToken,
       }),
+    endGame: (playerToken: string) =>
+      sendIfOpen(socket, {
+        type: "end_game",
+        player_token: playerToken,
+      }),
     close: () => socket.close(),
   };
 }

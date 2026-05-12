@@ -1519,9 +1519,9 @@ export default function GameBoard() {
       setGameFinished(true);
 
       if (isMyTurn && gameId && playerToken) {
-        const sent = socketRef.current?.endTurn(playerToken);
+        const sent = socketRef.current?.endGame(playerToken);
         if (!sent) {
-          addLog("Cannot end turn because WebSocket is not connected.");
+          addLog("Cannot finish game because WebSocket is not connected.");
         }
       }
 

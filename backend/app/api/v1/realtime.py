@@ -99,6 +99,12 @@ async def _handle_action(websocket: WebSocket, game_id: str, db: Session, token:
             await _broadcast_personal_states(game_id, db)
             return
 
+        if message_type == "end_game":
+            player_token = str(message.get("player_token") or token or "")
+            game_service.finish_game(db, game_id, player_token)
+            await _broadcast_personal_states(game_id, db)
+            return
+
         await _send_error(websocket, f"Unknown message type: {message_type}")
 
     except Exception as exc:

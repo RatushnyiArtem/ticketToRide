@@ -261,6 +261,13 @@ def end_turn(db: Session, game_id: str, player_token: str) -> None:
     _advance_turn(db, game_id, game, player)
 
 
+def finish_game(db: Session, game_id: str, player_token: str) -> None:
+    game, player = _validate_player_turn(db, game_id, player_token)
+    game.status = GameStatus.finished
+    game.current_player_id = None
+    db.commit()
+
+
 def draw_blind_card(db: Session, game_id: str, player_token: str) -> None:
     game, player = _validate_player_turn(db, game_id, player_token)
     runtime = _ensure_runtime_state(db, game_id)
