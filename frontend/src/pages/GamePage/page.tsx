@@ -2013,8 +2013,8 @@ export default function GameBoard() {
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             {players.map((player, index) => {
-              const ticketPoints = player.isHuman ? completedTickets(player, routes) : 0;
-              const totalScore = isOnlineGame ? player.score : player.score + ticketPoints;
+              const ticketPoints = isOnlineGame ? 0 : player.isHuman ? completedTickets(player, routes) : 0;
+              const totalScore = player.score + ticketPoints;
               const visibleCardCount = player.isHuman ? handCount(player.hand) : player.handCount ?? handCount(player.hand);
 
               return (
@@ -2047,7 +2047,7 @@ export default function GameBoard() {
                     <span>{player.trains} trains</span>
                     <span>{visibleCardCount} cards</span>
                     <span className="col-span-2 text-xs text-slate-500">
-                      {isOnlineGame && !player.isHuman ? "route points only" : `routes ${player.score} + tickets ${ticketPoints}`}
+                      {isOnlineGame ? "route points only" : `routes ${player.score} + tickets ${ticketPoints}`}
                     </span>
                     <span className="col-span-2 text-xs text-emerald-300">
                       {player.isHuman ? `${player.tickets.length} hidden tickets` : "Tickets hidden"}
@@ -2120,7 +2120,7 @@ export default function GameBoard() {
                   {rankedPlayers.slice(0, revealedPlaces).map((player, index) => (
                     <div key={player.id} className="flex items-center justify-between rounded-3xl bg-white/5 px-5 py-3 text-sm text-slate-200">
                       <span>{index + 1}. {player.name}</span>
-                      <span className="font-black text-emerald-300">{player.score + completedTickets(player, routes)}</span>
+                      <span className="font-black text-emerald-300">{isOnlineGame ? player.score : player.score + completedTickets(player, routes)}</span>
                     </div>
                   ))}
                 </div>
