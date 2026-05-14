@@ -407,6 +407,12 @@ export default function LobbyPage() {
     setShowCreateGame(false);
     setNewGameName("");
     setMaxPlayers(5);
+
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(ACTIVE_LOBBY_STORAGE_KEY);
+      localStorage.removeItem("ttr_local_game_state");
+    }
+
     navigate("/game");
   };
 

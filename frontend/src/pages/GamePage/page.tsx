@@ -752,7 +752,7 @@ function buildRawPlayersFromLobby(): Array<{
 
   const fallbackPlayers = [
     { id: "p1", name: "You", avatar: "🚂", color: "red" as PlayerColor, isHuman: true },
-    { id: "p2", name: "Opponent", avatar: "🧑‍💻", color: "blue" as PlayerColor, isHuman: false },
+    { id: "p2", name: "Bot", avatar: "🧑‍💻", color: "blue" as PlayerColor, isHuman: false },
   ];
 
   if (!snapshot?.players?.length) return fallbackPlayers;
@@ -1970,6 +1970,8 @@ export default function GameBoard() {
     setFinalRoundRemaining([]);
     setGameFinished(false);
     setGameLost(false);
+    setTurnSecondsLeft(TURN_SECONDS);
+    handledExpiredTurnRef.current = null;
     setStartingTicketOffer(newPrepared.humanTicketOffer);
     setSelectedStartingTicketIds([
       ticketId(newPrepared.humanTicketOffer.longTicket),
@@ -2038,7 +2040,9 @@ export default function GameBoard() {
                     </span>
                     <div className="min-w-0">
                       <strong className="block truncate text-base font-black text-slate-50">{player.name}</strong>
-                      <span className="text-sm font-semibold text-slate-400">{player.isHuman ? "You" : "Opponent"}</span>
+                      <span className="text-sm font-semibold text-slate-400">
+                        {player.isHuman ? "You" : isLocalBotGame ? "Bot" : "Opponent"}
+                      </span>
                     </div>
                   </div>
 
@@ -2168,10 +2172,38 @@ export default function GameBoard() {
                 opacity="0.95"
               />
               <path
+                d="M42 10 C50 4, 60 2, 70 8 C78 14, 84 20, 80 26 C74 28, 68 26, 62 24 C56 22, 50 18, 44 14 Z"
+                fill="#d4d99f"
+                stroke="#9ca36a"
+                strokeWidth="0.45"
+                opacity="0.96"
+              />
+              <path
                 d="M33 43 C38 39, 47 40, 54 45 C63 51, 69 57, 72 67 C61 71, 47 70, 37 64 C29 59, 28 49, 33 43 Z"
-                fill="#c9d58d"
+                fill="#c9d58f"
                 stroke="#9ca36a"
                 strokeWidth="0.5"
+                opacity="0.9"
+              />
+              <path
+                d="M28 24 C34 17, 42 15, 51 19 C58 23, 63 29, 62 36 C60 42, 55 47, 50 49 C45 48, 39 45, 34 41 C30 36, 28 30, 28 24 Z"
+                fill="#d4d99f"
+                stroke="#9ca36a"
+                strokeWidth="0.45"
+                opacity="0.95"
+              />
+              <path
+                d="M42 33 C50 29, 58 29, 66 35 C72 40, 75 48, 72 55 C68 60, 63 62, 58 61 C53 58, 50 53, 48 47 C47 41, 45 37, 42 33 Z"
+                fill="#d4d99f"
+                stroke="#9ca36a"
+                strokeWidth="0.45"
+                opacity="0.92"
+              />
+              <path
+                d="M12 48 C16 44, 22 42, 28 44 C33 47, 35 51, 34 55 C30 58, 26 59, 22 58 C18 56, 14 53, 12 48 Z"
+                fill="#d4d99f"
+                stroke="#9ca36a"
+                strokeWidth="0.4"
                 opacity="0.9"
               />
 
@@ -2191,14 +2223,14 @@ export default function GameBoard() {
                   return (
                     <g key={`${route.id}-${index}`} transform={`translate(${x} ${y}) rotate(${geometry.angle})`}>
                       <rect
-                        x="-1.25"
-                        y="-0.72"
-                        width="2.5"
-                        height="1.44"
-                        rx="0.35"
+                        x="-1.5"
+                        y="-0.85"
+                        width="3"
+                        height="1.7"
+                        rx="0.4"
                         fill={fill}
                         stroke={stroke}
-                        strokeWidth={selected ? 0.35 : 0.18}
+                        strokeWidth={selected ? 0.4 : 0.2}
                         filter="url(#shadow)"
                       />
                       {route.type === "ferry" && index < (route.ferryLocos ?? 1) && (
@@ -2219,20 +2251,30 @@ export default function GameBoard() {
 
                 return (
                   <g
-                  key={route.id}
-                  className={`cursor-pointer ${!isMyTurn ? "cursor-not-allowed opacity-70" : ""}`}
-                  onClick={() => {
-                    if (!isMyTurn) return;
-                    setSelectedRouteId(route.id);
-                  }}
-                >
+                    key={route.id}
+                    className={`cursor-pointer ${!isMyTurn ? "cursor-not-allowed opacity-70" : ""}`}
+                    onClick={() => {
+                      if (!isMyTurn) return;
+                      setSelectedRouteId(route.id);
+                    }}
+                  >
                     <line
                       x1={geometry.x1}
                       y1={geometry.y1}
                       x2={geometry.x2}
                       y2={geometry.y2}
-                      stroke={selected ? "#10b981" : "rgba(15,23,42,0.24)"}
-                      strokeWidth={selected ? 1.25 : 0.8}
+                      stroke={selected ? "rgba(16,185,129,0.08)" : "rgba(255,255,255,0.06)"}
+                      strokeWidth={selected ? 6 : 5}
+                      strokeLinecap="round"
+                      pointerEvents="stroke"
+                    />
+                    <line
+                      x1={geometry.x1}
+                      y1={geometry.y1}
+                      x2={geometry.x2}
+                      y2={geometry.y2}
+                      stroke={selected ? "#10b981" : "rgba(15,23,42,0.32)"}
+                      strokeWidth={selected ? 2.4 : 1.4}
                       strokeLinecap="round"
                     />
                     {items}
@@ -2242,8 +2284,8 @@ export default function GameBoard() {
 
               {CITIES.map((city) => (
                 <g key={city.id}>
-                  <circle cx={city.x} cy={city.y} r="1.65" fill="#111827" stroke="#ffffff" strokeWidth="0.7" />
-                  <circle cx={city.x} cy={city.y} r="0.75" fill="#fef3c7" />
+                  <circle cx={city.x} cy={city.y} r="2.1" fill="#111827" stroke="#ffffff" strokeWidth="0.7" />
+                  <circle cx={city.x} cy={city.y} r="1.05" fill="#fef3c7" />
                   <text
                     x={city.x + (city.labelDx ?? 1)}
                     y={city.y + (city.labelDy ?? -0.8)}
